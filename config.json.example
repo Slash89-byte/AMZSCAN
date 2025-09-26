@@ -1,0 +1,19 @@
+{
+  "keepa_api_key": "YOUR_KEEPA_API_KEY_HERE",
+  "min_roi_threshold": 15.0,
+  "amazon_marketplace": "france",
+  "default_weight_kg": 0.5,
+  "default_category": "default",
+  "currency_symbol": "€",
+  "vat_rate": 0.20,
+  "ui_settings": {
+    "window_width": 800,
+    "window_height": 600,
+    "theme": "default"
+  },
+  "api_settings": {
+    "request_timeout": 30,
+    "max_retries": 3,
+    "rate_limit_delay": 1.0
+  }
+}
