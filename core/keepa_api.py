@@ -92,8 +92,14 @@ class KeepaAPI:
         # Extract category info
         category_tree = product.get('categoryTree', [])
         main_category = None
-        if category_tree:
-            main_category = category_tree[0].get('name', 'Unknown')
+        if category_tree and len(category_tree) > 0:
+            # categoryTree[0] might be a dict or another structure
+            first_category = category_tree[0]
+            if isinstance(first_category, dict):
+                main_category = first_category.get('name', 'Unknown')
+            else:
+                # If it's not a dict, use it as string
+                main_category = str(first_category) if first_category else 'Unknown'
         
         # Extract dimensions and weight (if available)
         package_weight = product.get('packageWeight', 500)  # Default 500g
