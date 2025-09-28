@@ -90,30 +90,33 @@ class KeepaAPI:
         if 'asin' not in product:
             return None
         
-        # Extract current price from Buy Box price history (csv[0])
+        # Extract current price from Buy Box price history (csv[0]) or Amazon price (csv[1])
         current_price = 0.0
         if 'csv' in product and product['csv']:
             csv_data = product['csv']
             
             # Handle both dict and list formats for csv data
             if isinstance(csv_data, dict):
-                # csv[0] contains Buy Box price history (the actual selling price)
+                # Try csv[0] (Buy Box price) first
                 buybox_price_data = csv_data.get(0, [])
-                # Fallback to Amazon price (csv[1]) if no Buy Box data
-                if not buybox_price_data:
-                    buybox_price_data = csv_data.get(1, [])
-            elif isinstance(csv_data, list) and len(csv_data) > 0:
-                # If csv is a list, try to get index 0 first
+                amazon_price_data = csv_data.get(1, [])
+            elif isinstance(csv_data, list) and len(csv_data) > 1:
+                # If csv is a list, get both arrays
                 buybox_price_data = csv_data[0] if len(csv_data) > 0 else []
-                # Fallback to index 1 if index 0 is empty
-                if not buybox_price_data and len(csv_data) > 1:
-                    buybox_price_data = csv_data[1]
+                amazon_price_data = csv_data[1] if len(csv_data) > 1 else []
             else:
                 buybox_price_data = []
+                amazon_price_data = []
             
+            # Try Buy Box price first
             if buybox_price_data and len(buybox_price_data) >= 2:
-                # Price is in euro cents, convert to euros
                 price_cents = buybox_price_data[-1]
+                if price_cents and price_cents != -1:  # -1 means no data
+                    current_price = price_cents / 100.0
+            
+            # If no Buy Box price, try Amazon price
+            if current_price == 0.0 and amazon_price_data and len(amazon_price_data) >= 2:
+                price_cents = amazon_price_data[-1]
                 if price_cents and price_cents != -1:  # -1 means no data
                     current_price = price_cents / 100.0
         
