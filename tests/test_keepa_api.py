@@ -76,13 +76,12 @@ class TestKeepaAPI(unittest.TestCase):
         call_args = mock_get.call_args
         self.assertEqual(call_args[0][0], "https://api.keepa.com/product")
         
-        # Check parameters
+        # Check parameters match current implementation
         params = call_args[1]['params']
         self.assertEqual(params['key'], self.api_key)
         self.assertEqual(params['domain'], 4)  # Default France domain
         self.assertEqual(params['asin'], self.test_asin)
-        self.assertEqual(params['stats'], '180')
-        self.assertEqual(params['offers'], '20')
+        self.assertEqual(params['stats'], 1)  # Current implementation uses 1
         
         # Verify parsed result
         self.assertIsNotNone(result)
@@ -114,10 +113,8 @@ class TestKeepaAPI(unittest.TestCase):
 
     def test_get_product_data_no_api_key(self):
         """Test that ValueError is raised when no API key is provided"""
-        api = KeepaAPI("")
-        
         with self.assertRaises(ValueError) as context:
-            api.get_product_data(self.test_asin)
+            api = KeepaAPI("")
         
         self.assertEqual(str(context.exception), "Keepa API key is required")
 

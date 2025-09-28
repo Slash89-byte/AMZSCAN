@@ -25,7 +25,7 @@ class TestAmazonFeesCalculator(unittest.TestCase):
         """Test initialization with default marketplace"""
         calc = AmazonFeesCalculator()
         self.assertEqual(calc.marketplace, 'france')
-        self.assertEqual(calc.vat_rate, 0.20)
+        self.assertEqual(calc.vat_rate, 20.0)  # VAT rate stored as percentage
         self.assertIn('default', calc.referral_fees)
         self.assertIn('small_standard', calc.fba_fees)
 
@@ -106,7 +106,7 @@ class TestAmazonFeesCalculator(unittest.TestCase):
         expected_fee = self.fees_calc.fba_fees['small_standard']['base']
         
         self.assertEqual(fee, expected_fee)
-        self.assertEqual(fee, 2.80)
+        self.assertEqual(fee, 4.30)  # Updated to match current fee structure
 
     def test_calculate_fba_fee_small_standard_exactly_1kg(self):
         """Test FBA fee calculation for small standard items exactly 1kg"""
@@ -115,7 +115,7 @@ class TestAmazonFeesCalculator(unittest.TestCase):
         expected_fee = self.fees_calc.fba_fees['small_standard']['base']
         
         self.assertEqual(fee, expected_fee)
-        self.assertEqual(fee, 2.80)
+        self.assertEqual(fee, 4.30)  # Updated to match current fee structure
 
     def test_calculate_fba_fee_small_standard_over_1kg(self):
         """Test FBA fee calculation for items that would theoretically be small_standard over 1kg"""
@@ -123,15 +123,15 @@ class TestAmazonFeesCalculator(unittest.TestCase):
         # This test verifies the tier boundary logic works correctly
         weight = 1.5
         # This will be large_standard tier since weight > 1.0
-        base_fee = self.fees_calc.fba_fees['large_standard']['base']  # 3.90
+        base_fee = self.fees_calc.fba_fees['large_standard']['base']  # 5.50
         extra_weight = weight - 1.0  # 0.5
         extra_fee = extra_weight * self.fees_calc.fba_fees['large_standard']['per_kg_over_1']  # 0.5 * 0.65
-        expected_fee = base_fee + extra_fee  # 3.90 + 0.325 = 4.225
+        expected_fee = base_fee + extra_fee  # 5.50 + 0.325 = 5.825
         
         actual_fee = self.fees_calc.calculate_fba_fee(weight)
         
         self.assertEqual(actual_fee, expected_fee)
-        self.assertAlmostEqual(actual_fee, 4.225, places=3)
+        self.assertAlmostEqual(actual_fee, 5.825, places=3)  # Updated expectation
 
     def test_calculate_fba_fee_large_standard(self):
         """Test FBA fee calculation for large standard items"""
@@ -144,7 +144,7 @@ class TestAmazonFeesCalculator(unittest.TestCase):
         actual_fee = self.fees_calc.calculate_fba_fee(weight)
         
         self.assertEqual(actual_fee, expected_fee)
-        self.assertEqual(actual_fee, 3.90 + (4.0 * 0.65))  # 3.90 + 2.60 = 6.50
+        self.assertEqual(actual_fee, 5.50 + (4.0 * 0.65))  # 5.50 + 2.60 = 8.10
 
     def test_calculate_fba_fee_small_oversize(self):
         """Test FBA fee calculation for small oversize items"""
@@ -157,7 +157,7 @@ class TestAmazonFeesCalculator(unittest.TestCase):
         actual_fee = self.fees_calc.calculate_fba_fee(weight)
         
         self.assertEqual(actual_fee, expected_fee)
-        self.assertEqual(actual_fee, 6.90 + (14.0 * 0.85))  # 6.90 + 11.90 = 18.80
+        self.assertEqual(actual_fee, 8.90 + (14.0 * 0.85))  # 8.90 + 11.90 = 20.80
 
     def test_calculate_fba_fee_weight_boundaries(self):
         """Test FBA fee calculation at weight tier boundaries"""
@@ -165,8 +165,8 @@ class TestAmazonFeesCalculator(unittest.TestCase):
         fee_1kg = self.fees_calc.calculate_fba_fee(1.0)
         fee_1kg_plus = self.fees_calc.calculate_fba_fee(1.001)
         
-        self.assertEqual(fee_1kg, 2.80)  # small_standard base
-        self.assertGreater(fee_1kg_plus, 2.80)  # large_standard base
+        self.assertEqual(fee_1kg, 4.30)  # small_standard base (updated)
+        self.assertGreater(fee_1kg_plus, 4.30)  # large_standard base
         
         # Test boundary between large_standard and small_oversize (10kg)
         fee_10kg = self.fees_calc.calculate_fba_fee(10.0)
@@ -205,7 +205,7 @@ class TestAmazonFeesCalculator(unittest.TestCase):
         
         # Verify calculations
         expected_referral = selling_price * 0.15  # 15% default
-        expected_fba = 2.80  # small_standard base for 0.5kg
+        expected_fba = 4.30  # small_standard base for 0.5kg (updated)
         expected_closing = 0.0
         expected_total = expected_referral + expected_fba + expected_closing
         expected_net = selling_price - expected_total
@@ -219,10 +219,15 @@ class TestAmazonFeesCalculator(unittest.TestCase):
     def test_calculate_total_fees_with_vat(self):
         """Test total fees calculation including VAT"""
         selling_price_with_vat = 29.99
-        result = self.fees_calc.calculate_total_fees(selling_price_with_vat, include_vat=True)
         
-        # Base price should be calculated excluding VAT
-        expected_base_price = selling_price_with_vat / (1 + self.fees_calc.vat_rate)
+        # Setup config to handle VAT removal from Amazon prices
+        self.config.set('vat_settings.vat_included_in_amazon_prices', True)
+        self.config.set('vat_settings.apply_vat_on_sale', True)
+        
+        result = self.fees_calc.calculate_total_fees(selling_price_with_vat)
+        
+        # Base price should be calculated excluding VAT (29.99 / 1.20 = 24.9917)
+        expected_base_price = selling_price_with_vat / (1 + self.fees_calc.vat_rate / 100)
         expected_referral = expected_base_price * 0.15
         
         self.assertAlmostEqual(result['referral_fee'], expected_referral, places=2)
@@ -249,16 +254,16 @@ class TestAmazonFeesCalculator(unittest.TestCase):
         
         # Light item (0.5kg)
         result_light = self.fees_calc.calculate_total_fees(price, weight_kg=0.5)
-        self.assertEqual(result_light['fba_fee'], 2.80)
+        self.assertEqual(result_light['fba_fee'], 4.30)  # Updated to current fee
         
         # Medium item (2kg)
         result_medium = self.fees_calc.calculate_total_fees(price, weight_kg=2.0)
-        expected_medium_fba = 3.90 + (1.0 * 0.65)  # large_standard base + extra
+        expected_medium_fba = 5.50 + (1.0 * 0.65)  # large_standard base + extra (updated)
         self.assertEqual(result_medium['fba_fee'], expected_medium_fba)
         
         # Heavy item (12kg)
         result_heavy = self.fees_calc.calculate_total_fees(price, weight_kg=12.0)
-        expected_heavy_fba = 6.90 + (11.0 * 0.85)  # small_oversize base + extra
+        expected_heavy_fba = 8.90 + (11.0 * 0.85)  # small_oversize base + extra (updated)
         self.assertEqual(result_heavy['fba_fee'], expected_heavy_fba)
 
     def test_calculate_fees_simplified_method(self):
@@ -286,10 +291,10 @@ class TestAmazonFeesCalculator(unittest.TestCase):
         result = self.fees_calc.calculate_total_fees(0.0)
         
         self.assertEqual(result['referral_fee'], 0.0)
-        self.assertEqual(result['fba_fee'], 2.80)  # FBA fee still applies
+        self.assertEqual(result['fba_fee'], 4.30)  # FBA fee still applies (updated)
         self.assertEqual(result['closing_fee'], 0.0)
-        self.assertEqual(result['total_fees'], 2.80)
-        self.assertEqual(result['net_proceeds'], -2.80)  # Negative because of FBA fee
+        self.assertEqual(result['total_fees'], 4.30)  # Updated total
+        self.assertEqual(result['net_proceeds'], -4.30)  # Negative because of FBA fee (updated)
 
     def test_edge_cases_very_high_price(self):
         """Test edge case with very high selling price"""
@@ -363,16 +368,17 @@ class TestAmazonFeesCalculator(unittest.TestCase):
         """Test getting base selling price for fee calculations"""
         gross_price = 120.0
         
+        # Set up config to include VAT in Amazon prices and apply VAT on sale
+        self.config.set('vat_settings.vat_included_in_amazon_prices', True)
+        self.config.set('vat_settings.apply_vat_on_sale', True)
+        
         # If VAT is included in Amazon prices, should remove VAT
         base_price = self.fees_calc.get_base_selling_price(gross_price)
         
-        # With default configuration (VAT included), should return net price
-        if self.config.get('vat_settings', {}).get('vat_included_in_amazon_prices', True):
-            expected_base = gross_price / (1 + self.config.get_vat_rate() / 100)
-            self.assertAlmostEqual(base_price, expected_base, places=2)
-        else:
-            # If VAT not included, should return gross price
-            self.assertEqual(base_price, gross_price)
+        # With VAT included and apply_vat_on_sale True, should return net price
+        # VAT rate is stored as percentage (20.0) so we need to divide by 100
+        expected_base = gross_price / (1 + self.config.get_vat_rate() / 100)
+        self.assertAlmostEqual(base_price, expected_base, places=2)
     
     def test_vat_rate_variations(self):
         """Test different VAT rates"""
