@@ -45,10 +45,18 @@ class KeepaAPI:
             data = response.json()
             
             if 'products' not in data or not data['products']:
+                print(f"Keepa API: No products found for ASIN {asin}")
                 return None
             
             product = data['products'][0]
-            return self._parse_product_data(product)
+            parsed_data = self._parse_product_data(product)
+            
+            # Validate that we got meaningful data
+            if not parsed_data or not self._validate_product_data(parsed_data):
+                print(f"Keepa API: Invalid or incomplete product data for ASIN {asin}")
+                return None
+                
+            return parsed_data
             
         except requests.exceptions.RequestException as e:
             print(f"Keepa API request failed: {e}")
@@ -63,9 +71,19 @@ class KeepaAPI:
         # Extract current price (in euro cents, convert to euros)
         current_price = 0.0
         if 'csv' in product and product['csv']:
-            # csv[1] contains Amazon price history
-            # Last price point is the most recent
-            amazon_price_data = product['csv'].get(1, [])
+            csv_data = product['csv']
+            
+            # Handle both dict and list formats for csv data
+            if isinstance(csv_data, dict):
+                # csv[1] contains Amazon price history
+                # Last price point is the most recent
+                amazon_price_data = csv_data.get(1, [])
+            elif isinstance(csv_data, list) and len(csv_data) > 1:
+                # If csv is a list, try to get index 1
+                amazon_price_data = csv_data[1] if len(csv_data) > 1 else []
+            else:
+                amazon_price_data = []
+            
             if amazon_price_data and len(amazon_price_data) >= 2:
                 # Price is in euro cents, convert to euros
                 price_cents = amazon_price_data[-1]
@@ -78,8 +96,18 @@ class KeepaAPI:
         # Extract sales rank
         sales_rank = None
         if 'csv' in product and product['csv']:
-            # csv[3] contains sales rank history
-            rank_data = product['csv'].get(3, [])
+            csv_data = product['csv']
+            
+            # Handle both dict and list formats for csv data
+            if isinstance(csv_data, dict):
+                # csv[3] contains sales rank history
+                rank_data = csv_data.get(3, [])
+            elif isinstance(csv_data, list) and len(csv_data) > 3:
+                # If csv is a list, try to get index 3
+                rank_data = csv_data[3] if len(csv_data) > 3 else []
+            else:
+                rank_data = []
+                
             if rank_data and len(rank_data) >= 2:
                 sales_rank = rank_data[-1]
         
@@ -142,7 +170,13 @@ class KeepaAPI:
         price_history = []
         
         if 'csv' in raw_data and raw_data['csv']:
-            amazon_price_data = raw_data['csv'].get(1, [])
+            csv_data = raw_data['csv']
+            if isinstance(csv_data, dict):
+                amazon_price_data = csv_data.get(1, [])
+            elif isinstance(csv_data, list) and len(csv_data) > 1:
+                amazon_price_data = csv_data[1] if len(csv_data) > 1 else []
+            else:
+                amazon_price_data = []
             
             # Keepa data comes in pairs: [timestamp1, price1, timestamp2, price2, ...]
             for i in range(0, len(amazon_price_data), 2):
@@ -177,3 +211,48 @@ class KeepaAPI:
             
         except Exception:
             return False
+    
+    def _validate_product_data(self, product_data: Dict[str, Any]) -> bool:
+        """
+        Validate that product data contains meaningful information
+        Args:
+            product_data: Parsed product data dictionary
+        Returns:
+            True if data is valid and usable, False otherwise
+        """
+        if not product_data:
+            return False
+        
+        # Check required fields
+        required_fields = ['asin', 'title']
+        for field in required_fields:
+            if field not in product_data or not product_data[field]:
+                print(f"Keepa API validation: Missing required field '{field}'")
+                return False
+        
+        # Check that we have either price or useful metadata
+        has_price = product_data.get('current_price', 0) > 0
+        has_metadata = (
+            product_data.get('sales_rank') is not None or
+            product_data.get('review_count', 0) > 0 or
+            product_data.get('category') is not None
+        )
+        
+        if not has_price and not has_metadata:
+            print("Keepa API validation: No price or useful metadata found")
+            return False
+        
+        # Check for reasonable data values
+        title = product_data.get('title', '')
+        if len(title.strip()) < 3:
+            print(f"Keepa API validation: Title too short: '{title}'")
+            return False
+        
+        # Check for placeholder/error titles
+        error_indicators = ['unknown', 'not found', 'error', '404', 'unavailable']
+        title_lower = title.lower()
+        if any(indicator in title_lower for indicator in error_indicators):
+            print(f"Keepa API validation: Title indicates error: '{title}'")
+            return False
+        
+        return True

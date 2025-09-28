@@ -34,7 +34,30 @@ class AnalysisWorker(QThread):
             # Get product data from Keepa
             product_data = keepa_api.get_product_data(self.asin)
             if not product_data:
-                self.error_occurred.emit("Failed to fetch product data from Keepa API")
+                error_msg = (
+                    f"Failed to fetch product data for ASIN: {self.asin}\n\n"
+                    "Possible causes:\n"
+                    "• Invalid ASIN\n"
+                    "• Product not available in France marketplace\n"
+                    "• Keepa API key issues\n"
+                    "• API rate limit exceeded\n"
+                    "• Network connectivity problems"
+                )
+                self.error_occurred.emit(error_msg)
+                return
+            
+            # Validate price data
+            current_price = product_data.get('current_price', 0)
+            if current_price <= 0:
+                error_msg = (
+                    f"No current price available for ASIN: {self.asin}\n\n"
+                    "The product might be:\n"
+                    "• Out of stock\n"
+                    "• Not sold by Amazon\n"
+                    "• Price data temporarily unavailable\n\n"
+                    "Try a different ASIN or check later."
+                )
+                self.error_occurred.emit(error_msg)
                 return
             
             # Calculate fees
