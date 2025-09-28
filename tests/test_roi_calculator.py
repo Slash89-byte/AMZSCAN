@@ -5,6 +5,7 @@ Unit tests for ROI calculator module
 import unittest
 import math
 from core.roi_calculator import ROICalculator
+from utils.config import Config
 
 
 class TestROICalculator(unittest.TestCase):
@@ -12,7 +13,12 @@ class TestROICalculator(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures before each test method."""
-        self.roi_calc = ROICalculator()
+        # Create test configuration
+        self.config = Config()
+        self.config.set_vat_rate(20.0)
+        self.config.set_apply_vat_on_cost(True)
+        
+        self.roi_calc = ROICalculator(self.config)
         
         # Standard test scenario
         self.cost_price = 15.00
@@ -377,6 +383,160 @@ class TestROICalculator(unittest.TestCase):
         # Verify internal consistency
         calculated_profit = result['net_proceeds'] - result['total_costs']
         self.assertAlmostEqual(result['profit'], calculated_profit, places=10)
+
+    def test_vat_integration_with_roi_calculation(self):
+        """Test VAT integration in ROI calculations"""
+        cost_price = 10.0
+        selling_price = 30.0
+        amazon_fees = 5.0
+        
+        # Test with VAT on cost enabled
+        config_vat = Config()
+        config_vat.set_vat_rate(20.0)
+        config_vat.set_apply_vat_on_cost(True)
+        
+        roi_calc_with_vat = ROICalculator(config_vat)
+        result_with_vat = roi_calc_with_vat.calculate_roi(cost_price, selling_price, amazon_fees)
+        
+        # Test without VAT on cost
+        config_no_vat = Config()
+        config_no_vat.set_apply_vat_on_cost(False)
+        
+        roi_calc_no_vat = ROICalculator(config_no_vat)
+        result_no_vat = roi_calc_no_vat.calculate_roi(cost_price, selling_price, amazon_fees)
+        
+        # With VAT, total costs should be higher, ROI should be lower
+        self.assertGreater(result_with_vat['total_costs'], result_no_vat['total_costs'])
+        self.assertLess(result_with_vat['roi_percentage'], result_no_vat['roi_percentage'])
+        
+        # Verify VAT calculation (10 * 1.20 = 12)
+        expected_vat_cost = cost_price * 1.20
+        self.assertAlmostEqual(result_with_vat['cost_price'], expected_vat_cost, places=2)
+    
+    def test_apply_vat_to_cost_method(self):
+        """Test VAT application to cost prices"""
+        cost_price = 100.0
+        
+        # Test with VAT enabled
+        vat_cost = self.roi_calc.apply_vat_to_cost(cost_price)
+        expected_cost = cost_price * 1.20  # 20% VAT
+        self.assertAlmostEqual(vat_cost, expected_cost, places=2)
+        
+        # Test with VAT disabled
+        config_no_vat = Config()
+        config_no_vat.set_apply_vat_on_cost(False)
+        roi_calc_no_vat = ROICalculator(config_no_vat)
+        
+        no_vat_cost = roi_calc_no_vat.apply_vat_to_cost(cost_price)
+        self.assertEqual(no_vat_cost, cost_price)
+    
+    def test_breakeven_calculation_with_vat(self):
+        """Test breakeven price calculation considering VAT"""
+        cost_price = 50.0
+        target_roi = 20.0
+        amazon_fee_percentage = 15.0
+        fba_fee = 3.0
+        
+        # Calculate breakeven with VAT configuration
+        breakeven_price = self.roi_calc.calculate_breakeven_price(
+            cost_price, amazon_fee_percentage, fba_fee, target_roi
+        )
+        
+        # Breakeven should be higher when VAT is applied to costs
+        self.assertGreater(breakeven_price, cost_price)
+        
+        # Test without VAT for comparison
+        config_no_vat = Config()
+        config_no_vat.set_apply_vat_on_cost(False)
+        roi_calc_no_vat = ROICalculator(config_no_vat)
+        
+        breakeven_no_vat = roi_calc_no_vat.calculate_breakeven_price(
+            cost_price, amazon_fee_percentage, fba_fee, target_roi
+        )
+        
+        # Breakeven with VAT should be higher
+        self.assertGreater(breakeven_price, breakeven_no_vat)
+    
+    def test_different_vat_rates(self):
+        """Test ROI calculations with different VAT rates"""
+        cost_price = 20.0
+        selling_price = 50.0
+        amazon_fees = 8.0
+        
+        vat_rates = [0.0, 10.0, 19.0, 20.0, 22.0, 25.0]
+        previous_roi = None
+        
+        for vat_rate in vat_rates:
+            config = Config()
+            config.set_vat_rate(vat_rate)
+            config.set_apply_vat_on_cost(True)
+            
+            roi_calc = ROICalculator(config)
+            result = roi_calc.calculate_roi(cost_price, selling_price, amazon_fees)
+            
+            # Higher VAT rates should result in lower ROI
+            if previous_roi is not None:
+                self.assertLessEqual(result['roi_percentage'], previous_roi)
+            
+            previous_roi = result['roi_percentage']
+            
+            # Cost price should reflect VAT
+            expected_cost = cost_price * (1 + vat_rate / 100)
+            self.assertAlmostEqual(result['cost_price'], expected_cost, places=2)
+    
+    def test_profitability_scenarios_with_vat(self):
+        """Test profitability analysis scenarios with VAT considerations"""
+        cost_price = 30.0
+        selling_price = 80.0
+        amazon_fees = 12.0
+        
+        scenarios = self.roi_calc.analyze_profitability_scenarios(
+            cost_price, selling_price, amazon_fees
+        )
+        
+        # Verify structure includes VAT-adjusted calculations
+        self.assertIn('current', scenarios)
+        self.assertIn('price_drops', scenarios)
+        self.assertIn('cost_increases', scenarios)
+        self.assertIn('breakeven', scenarios)
+        
+        # Current scenario should reflect VAT on costs
+        current = scenarios['current']
+        expected_vat_cost = cost_price * 1.20
+        self.assertAlmostEqual(current['cost_price'], expected_vat_cost, places=2)
+        
+        # Verify that cost increases scenario shows impact of VAT
+        cost_increase_5 = scenarios['cost_increases']['5%']
+        increased_cost = cost_price * 1.05
+        expected_vat_increased = increased_cost * 1.20
+        self.assertAlmostEqual(cost_increase_5['cost_price'], expected_vat_increased, places=2)
+    
+    def test_vat_edge_cases(self):
+        """Test VAT functionality edge cases"""
+        # Test with zero VAT rate
+        config_zero_vat = Config()
+        config_zero_vat.set_vat_rate(0.0)
+        config_zero_vat.set_apply_vat_on_cost(True)
+        
+        roi_calc_zero = ROICalculator(config_zero_vat)
+        result_zero = roi_calc_zero.calculate_roi(10.0, 30.0, 5.0)
+        
+        # With 0% VAT, cost should remain unchanged
+        self.assertEqual(result_zero['cost_price'], 10.0)
+        
+        # Test with very high VAT rate
+        config_high_vat = Config()
+        config_high_vat.set_vat_rate(50.0)
+        config_high_vat.set_apply_vat_on_cost(True)
+        
+        roi_calc_high = ROICalculator(config_high_vat)
+        result_high = roi_calc_high.calculate_roi(10.0, 30.0, 5.0)
+        
+        # With 50% VAT, cost should be 15.0
+        self.assertAlmostEqual(result_high['cost_price'], 15.0, places=2)
+        
+        # ROI should be significantly lower
+        self.assertLess(result_high['roi_percentage'], result_zero['roi_percentage'])
 
 
 if __name__ == '__main__':

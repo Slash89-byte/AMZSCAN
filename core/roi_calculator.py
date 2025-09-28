@@ -3,27 +3,42 @@ ROI (Return on Investment) calculator for Amazon products
 """
 
 from typing import Dict, Any
+from utils.config import Config
 
 class ROICalculator:
     """Calculate ROI and profit margins for Amazon products"""
     
-    def __init__(self):
-        pass
+    def __init__(self, config: Config = None):
+        """
+        Initialize ROI calculator with configuration
+        
+        Args:
+            config: Configuration instance with VAT and business settings
+        """
+        self.config = config or Config()
+        self.vat_settings = self.config.get('vat_settings', {})
+        self.business_settings = self.config.get('business_model_settings', {})
     
     def calculate_roi(self, cost_price: float, selling_price: float, 
                      amazon_fees: float, additional_costs: float = 0.0) -> Dict[str, float]:
         """
-        Calculate ROI for a product
+        Calculate ROI for a product with VAT handling
         
         Args:
-            cost_price: Your cost to acquire the product
-            selling_price: Amazon selling price
+            cost_price: Your cost to acquire the product (may include VAT based on config)
+            selling_price: Amazon selling price (gross, including VAT)
             amazon_fees: Total Amazon fees (referral + FBA + closing)
             additional_costs: Any additional costs (shipping to Amazon, prep, etc.)
         
         Returns:
             Dictionary with profit calculations
         """
+        # Apply VAT to cost if configured
+        if self.config.get_apply_vat_on_cost():
+            vat_rate = self.config.get_vat_rate()
+            if vat_rate > 0:
+                cost_price = cost_price * (1 + vat_rate / 100)
+        
         # Calculate net proceeds (what you actually receive)
         net_proceeds = selling_price - amazon_fees
         
@@ -57,6 +72,75 @@ class ROICalculator:
             'profit_margin': profit_margin
         }
     
+    def apply_vat_to_cost(self, cost_price: float) -> float:
+        """
+        Apply VAT to cost price if configured
+        
+        Args:
+            cost_price: Base cost price
+            
+        Returns:
+            Cost price with VAT applied if configured
+        """
+        if self.config.get_apply_vat_on_cost():
+            vat_rate = self.config.get_vat_rate()
+            return cost_price * (1 + vat_rate / 100)
+        return cost_price
+    
+    def get_net_selling_price(self, gross_selling_price: float) -> float:
+        """
+        Get net selling price (excluding VAT) from gross price
+        
+        Args:
+            gross_selling_price: Selling price including VAT
+            
+        Returns:
+            Net selling price (VAT excluded)
+        """
+        vat_rate = self.config.get_vat_rate()
+        if vat_rate > 0:
+            return gross_selling_price / (1 + vat_rate / 100)
+        return gross_selling_price
+    
+    def calculate_roi_with_vat_details(self, cost_price: float, selling_price: float, 
+                                     amazon_fees: float, additional_costs: float = 0.0) -> Dict[str, Any]:
+        """
+        Calculate ROI with detailed VAT breakdown
+        
+        Args:
+            cost_price: Base cost price (before VAT)
+            selling_price: Gross selling price (including VAT)
+            amazon_fees: Total Amazon fees
+            additional_costs: Additional costs
+            
+        Returns:
+            Dictionary with detailed VAT and profit calculations
+        """
+        # VAT calculations
+        vat_rate = self.config.get_vat_rate()
+        apply_vat_on_cost = self.config.get_apply_vat_on_cost()
+        
+        cost_with_vat = self.apply_vat_to_cost(cost_price)
+        net_selling_price = self.get_net_selling_price(selling_price)
+        vat_amount = selling_price - net_selling_price
+        
+        # Standard ROI calculation with VAT-adjusted values
+        roi_result = self.calculate_roi(cost_price, selling_price, amazon_fees, additional_costs)
+        
+        # Add VAT details
+        roi_result.update({
+            'vat_rate': vat_rate,
+            'apply_vat_on_cost': apply_vat_on_cost,
+            'cost_before_vat': cost_price,
+            'cost_with_vat': cost_with_vat,
+            'net_selling_price': net_selling_price,
+            'gross_selling_price': selling_price,
+            'vat_amount': vat_amount,
+            'vat_on_cost': cost_with_vat - cost_price if apply_vat_on_cost else 0.0
+        })
+        
+        return roi_result
+    
     def is_profitable(self, roi_percentage: float, min_roi_threshold: float = 15.0) -> bool:
         """
         Check if product meets profitability threshold
@@ -73,17 +157,20 @@ class ROICalculator:
     def calculate_breakeven_price(self, cost_price: float, amazon_fee_percentage: float = 15.0,
                                  fba_fee: float = 3.0, target_roi: float = 15.0) -> float:
         """
-        Calculate the minimum selling price needed to achieve target ROI
+        Calculate the minimum selling price needed to achieve target ROI (VAT aware)
         
         Args:
-            cost_price: Your cost to acquire the product
+            cost_price: Your cost to acquire the product (before VAT)
             amazon_fee_percentage: Amazon referral fee percentage
             fba_fee: FBA fulfillment fee
             target_roi: Desired ROI percentage
         
         Returns:
-            Minimum selling price needed
+            Minimum selling price needed (gross, including VAT)
         """
+        # Apply VAT to cost if configured
+        effective_cost = self.apply_vat_to_cost(cost_price)
+        
         # Formula: selling_price = (cost_price * (1 + target_roi/100) + fba_fee) / (1 - amazon_fee_percentage/100)
         target_multiplier = 1 + (target_roi / 100)
         fee_multiplier = 1 - (amazon_fee_percentage / 100)
@@ -91,8 +178,22 @@ class ROICalculator:
         if fee_multiplier <= 0:
             return float('inf')  # Impossible to achieve target ROI
         
-        min_selling_price = (cost_price * target_multiplier + fba_fee) / fee_multiplier
+        min_selling_price = (effective_cost * target_multiplier + fba_fee) / fee_multiplier
+        
+        # Add VAT to get gross selling price
+        vat_rate = self.config.get_vat_rate()
+        if vat_rate > 0:
+            min_selling_price = min_selling_price * (1 + vat_rate / 100)
+        
         return max(min_selling_price, 0.0)
+    
+    def apply_vat_to_cost(self, cost_price: float) -> float:
+        """Apply VAT to cost price if configured"""
+        if self.config.get_apply_vat_on_cost():
+            vat_rate = self.config.get_vat_rate()
+            if vat_rate > 0:
+                return cost_price * (1 + vat_rate / 100)
+        return cost_price
     
     def analyze_profitability_scenarios(self, cost_price: float, selling_price: float,
                                       amazon_fees: float) -> Dict[str, Any]:

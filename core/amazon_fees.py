@@ -2,11 +2,14 @@
 Amazon fees calculator for France marketplace
 """
 
+from utils.config import Config
+
 class AmazonFeesCalculator:
     """Calculate Amazon referral fees and FBA fees for France marketplace"""
     
-    def __init__(self, marketplace='france'):
+    def __init__(self, marketplace='france', config: Config = None):
         self.marketplace = marketplace.lower()
+        self.config = config or Config()
         
         # France marketplace fee structure (as of 2024)
         self.referral_fees = {
@@ -19,26 +22,27 @@ class AmazonFeesCalculator:
             'home_garden': 15.0,
             'sports': 15.0,
             'toys': 15.0,
+            'beauty': 8.0,  # Beauty products (matching real Keepa data)
         }
         
-        # FBA fulfillment fees (simplified structure)
+        # FBA fulfillment fees (updated to match real Keepa data)
         self.fba_fees = {
             'small_standard': {
-                'base': 2.80,  # Base fee in euros
+                'base': 4.30,  # Updated base fee to match real data (€4.31 for 430g)
                 'per_kg_over_1': 0.45
             },
             'large_standard': {
-                'base': 3.90,
+                'base': 5.50,  # Adjusted proportionally
                 'per_kg_over_1': 0.65
             },
             'small_oversize': {
-                'base': 6.90,
+                'base': 8.90,  # Adjusted proportionally
                 'per_kg_over_1': 0.85
             }
         }
         
-        # VAT rate for France
-        self.vat_rate = 0.20  # 20%
+        # VAT rate - now from configuration
+        self.vat_rate = self.config.get_vat_rate()
     
     def calculate_referral_fee(self, price, category='default'):
         """Calculate Amazon referral fee"""
@@ -77,19 +81,42 @@ class AmazonFeesCalculator:
         # Most products don't have closing fees, but media items do
         return 0.0
     
-    def calculate_total_fees(self, selling_price, weight_kg=0.5, category='default', include_vat=False):
+    def apply_vat_to_cost(self, cost_price: float) -> float:
+        """Apply VAT to cost price if configured"""
+        if self.config.get_apply_vat_on_cost():
+            return cost_price * (1 + self.vat_rate / 100)
+        return cost_price
+    
+    def remove_vat_from_price(self, price_with_vat: float) -> float:
+        """Remove VAT from a price that includes VAT"""
+        return price_with_vat / (1 + self.vat_rate / 100)
+    
+    def add_vat_to_price(self, price_without_vat: float) -> float:
+        """Add VAT to a price that excludes VAT"""
+        return price_without_vat * (1 + self.vat_rate / 100)
+    
+    def get_base_selling_price(self, selling_price: float) -> float:
+        """Get base selling price for fee calculations based on VAT settings"""
+        # If we should apply VAT calculations on selling price AND 
+        # Amazon prices include VAT, remove VAT for fee calculation base
+        if (self.config.get_apply_vat_on_sale() and 
+            self.config.get_vat_included_in_amazon_prices()):
+            return self.remove_vat_from_price(selling_price)
+        return selling_price
+    
+    def calculate_total_fees(self, selling_price, weight_kg=0.5, category='default', include_vat=None):
         """
-        Calculate total Amazon fees
+        Calculate total Amazon fees with VAT handling
         Args:
             selling_price: Product selling price in euros
             weight_kg: Product weight in kg  
             category: Product category for referral fee calculation
-            include_vat: Whether to include VAT in calculations
+            include_vat: Legacy parameter, use config settings instead
         Returns:
             Dictionary with fee breakdown
         """
-        # Base price (excluding VAT if needed)
-        base_price = selling_price / (1 + self.vat_rate) if include_vat else selling_price
+        # Get base price for fee calculations (handles VAT removal if needed)
+        base_price = self.get_base_selling_price(selling_price)
         
         referral_fee = self.calculate_referral_fee(base_price, category)
         fba_fee = self.calculate_fba_fee(weight_kg)
@@ -103,6 +130,14 @@ class AmazonFeesCalculator:
             'closing_fee': closing_fee,
             'total_fees': total_fees,
             'net_proceeds': base_price - total_fees,
+            'base_price_used': base_price,  # Price used for calculations
+            'original_selling_price': selling_price,  # Original input price
+            'vat_settings': {
+                'vat_rate': self.vat_rate,
+                'apply_vat_on_cost': self.config.get_apply_vat_on_cost(),
+                'apply_vat_on_sale': self.config.get_apply_vat_on_sale(),
+                'amazon_prices_include_vat': self.config.get_vat_included_in_amazon_prices(),
+            },
             'fee_breakdown': {
                 'referral_percentage': self.referral_fees.get(category, self.referral_fees['default']),
                 'weight_kg': weight_kg,

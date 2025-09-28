@@ -79,7 +79,7 @@ class TestKeepaAPI(unittest.TestCase):
         # Check parameters
         params = call_args[1]['params']
         self.assertEqual(params['key'], self.api_key)
-        self.assertEqual(params['domain'], 8)  # Default France domain
+        self.assertEqual(params['domain'], 4)  # Default France domain
         self.assertEqual(params['asin'], self.test_asin)
         self.assertEqual(params['stats'], '180')
         self.assertEqual(params['offers'], '20')

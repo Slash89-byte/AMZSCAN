@@ -4,14 +4,16 @@ Main window for the Amazon Profitability Analyzer
 
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                             QLabel, QLineEdit, QPushButton, QTextEdit, 
-                            QGroupBox, QGridLayout, QMessageBox, QProgressBar)
+                            QGroupBox, QGridLayout, QMessageBox, QProgressBar,
+                            QMenuBar, QMenu)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QAction
 
 from core.amazon_fees import AmazonFeesCalculator
 from core.keepa_api import KeepaAPI
 from core.roi_calculator import ROICalculator
 from utils.config import Config
+from gui.config_dialog import ConfigurationDialog
 
 class AnalysisWorker(QThread):
     """Worker thread for product analysis to prevent GUI freezing"""
@@ -26,10 +28,10 @@ class AnalysisWorker(QThread):
     
     def run(self):
         try:
-            # Initialize components
+            # Initialize components with configuration
             keepa_api = KeepaAPI(self.config.get('keepa_api_key'))
-            fees_calc = AmazonFeesCalculator('france')
-            roi_calc = ROICalculator()
+            fees_calc = AmazonFeesCalculator('france', self.config)
+            roi_calc = ROICalculator(self.config)
             
             # Get product data from Keepa
             product_data = keepa_api.get_product_data(self.asin)
@@ -50,19 +52,20 @@ class AnalysisWorker(QThread):
             current_price = product_data.get('current_price', 0)
             if current_price <= 0:
                 error_msg = (
-                    f"No current price available for ASIN: {self.asin}\n\n"
+                    f"No current Buy Box price available for ASIN: {self.asin}\n\n"
                     "The product might be:\n"
                     "• Out of stock\n"
                     "• Not sold by Amazon\n"
-                    "• Price data temporarily unavailable\n\n"
+                    "• Buy Box price data temporarily unavailable\n\n"
                     "Try a different ASIN or check later."
                 )
                 self.error_occurred.emit(error_msg)
                 return
             
-            # Calculate fees
+            # Calculate fees using the appropriate category
             current_price = product_data.get('current_price', 0)
-            amazon_fees = fees_calc.calculate_fees(current_price, product_data.get('weight', 0.5))
+            fee_category = product_data.get('fee_category', 'default')
+            amazon_fees = fees_calc.calculate_fees(current_price, product_data.get('weight', 0.5), fee_category)
             
             # Calculate ROI
             roi_data = roi_calc.calculate_roi(
@@ -99,6 +102,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Amazon Profitability Analyzer")
         self.setGeometry(100, 100, 800, 600)
         
+        # Create menu bar
+        self.create_menu_bar()
+        
         # Central widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -131,6 +137,67 @@ class MainWindow(QMainWindow):
         # Status section
         self.status_label = QLabel("Ready to analyze products...")
         layout.addWidget(self.status_label)
+    
+    def create_menu_bar(self):
+        """Create the main menu bar"""
+        menubar = self.menuBar()
+        
+        # File menu
+        file_menu = menubar.addMenu("File")
+        
+        # Configuration action
+        config_action = QAction("Configuration...", self)
+        config_action.setShortcut("Ctrl+P")
+        config_action.triggered.connect(self.open_configuration_dialog)
+        file_menu.addAction(config_action)
+        
+        file_menu.addSeparator()
+        
+        # Exit action
+        exit_action = QAction("Exit", self)
+        exit_action.setShortcut("Ctrl+Q")
+        exit_action.triggered.connect(self.close)
+        file_menu.addAction(exit_action)
+        
+        # Help menu
+        help_menu = menubar.addMenu("Help")
+        
+        # About action
+        about_action = QAction("About...", self)
+        about_action.triggered.connect(self.show_about_dialog)
+        help_menu.addAction(about_action)
+    
+    def open_configuration_dialog(self):
+        """Open the configuration dialog"""
+        dialog = ConfigurationDialog(self, self.config)
+        dialog.configuration_saved.connect(self.on_configuration_saved)
+        dialog.exec()
+    
+    def on_configuration_saved(self):
+        """Handle configuration saved event"""
+        # Reload configuration
+        self.config = Config()
+        self.status_label.setText("Configuration updated successfully!")
+        QMessageBox.information(self, "Configuration", "Settings have been updated and will be applied immediately.")
+    
+    def show_about_dialog(self):
+        """Show about dialog"""
+        about_text = """
+        <h3>Amazon Profitability Analyzer</h3>
+        <p>Version 1.0</p>
+        <p>A comprehensive tool for analyzing Amazon product profitability 
+        using Keepa API data and accurate fee calculations.</p>
+        <p><b>Features:</b></p>
+        <ul>
+        <li>Real-time product data from Keepa API</li>
+        <li>Accurate Amazon France marketplace fees</li>
+        <li>VAT handling for European markets</li>
+        <li>ROI calculation and profitability analysis</li>
+        <li>Configurable business model settings</li>
+        </ul>
+        <p>For support and updates, visit our GitHub repository.</p>
+        """
+        QMessageBox.about(self, "About Amazon Profitability Analyzer", about_text)
     
     def create_input_section(self):
         group = QGroupBox("Product Analysis")
@@ -219,7 +286,7 @@ class MainWindow(QMainWindow):
         <p><strong>ASIN:</strong> {results['asin']}</p>
         <p><strong>Product:</strong> {results['product_title']}</p>
         <hr>
-        <p><strong>Current Amazon Price:</strong> €{results['current_price']:.2f}</p>
+        <p><strong>Current Buy Box Price:</strong> €{results['current_price']:.2f}</p>
         <p><strong>Your Cost Price:</strong> €{results['cost_price']:.2f}</p>
         <p><strong>Amazon Fees:</strong> €{results['amazon_fees']:.2f}</p>
         <p><strong>Profit:</strong> €{results['profit']:.2f}</p>

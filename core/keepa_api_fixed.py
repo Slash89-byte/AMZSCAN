@@ -37,12 +37,12 @@ class KeepaAPI:
             'jardin': 'home_garden',
         }
     
-    def get_product_data(self, asin: str, domain: int = 4) -> Optional[Dict[str, Any]]:
+    def get_product_data(self, asin: str, domain: int = 8) -> Optional[Dict[str, Any]]:
         """
         Get product data from Keepa API
         Args:
             asin: Amazon ASIN
-            domain: Amazon domain (4 = amazon.fr)
+            domain: Amazon domain (8 = amazon.fr)
         Returns:
             Dictionary with product data or None if error
         """
@@ -80,30 +80,24 @@ class KeepaAPI:
         if not self._validate_product_data(product):
             return None
         
-        # Extract current price from Buy Box price history (csv[0])
+        # Extract current price from Amazon price history
         current_price = 0.0
         if 'csv' in product and product['csv']:
             csv_data = product['csv']
             
             # Handle both dict and list formats for csv data
             if isinstance(csv_data, dict):
-                # csv[0] contains Buy Box price history (the actual selling price)
-                buybox_price_data = csv_data.get(0, [])
-                # Fallback to Amazon price (csv[1]) if no Buy Box data
-                if not buybox_price_data:
-                    buybox_price_data = csv_data.get(1, [])
-            elif isinstance(csv_data, list) and len(csv_data) > 0:
-                # If csv is a list, try to get index 0 first
-                buybox_price_data = csv_data[0] if len(csv_data) > 0 else []
-                # Fallback to index 1 if index 0 is empty
-                if not buybox_price_data and len(csv_data) > 1:
-                    buybox_price_data = csv_data[1]
+                # csv[1] contains Amazon price history
+                amazon_price_data = csv_data.get(1, [])
+            elif isinstance(csv_data, list) and len(csv_data) > 1:
+                # If csv is a list, try to get index 1
+                amazon_price_data = csv_data[1] if len(csv_data) > 1 else []
             else:
-                buybox_price_data = []
+                amazon_price_data = []
             
-            if buybox_price_data and len(buybox_price_data) >= 2:
+            if amazon_price_data and len(amazon_price_data) >= 2:
                 # Price is in euro cents, convert to euros
-                price_cents = buybox_price_data[-1]
+                price_cents = amazon_price_data[-1]
                 if price_cents and price_cents != -1:  # -1 means no data
                     current_price = price_cents / 100.0
         
@@ -227,12 +221,12 @@ class KeepaAPI:
         
         return True
     
-    def get_price_history(self, asin: str, domain: int = 4, days: int = 90) -> Optional[Dict[str, Any]]:
+    def get_price_history(self, asin: str, domain: int = 8, days: int = 90) -> Optional[Dict[str, Any]]:
         """
         Get price history for a product
         Args:
             asin: Amazon ASIN
-            domain: Amazon domain (4 = amazon.fr)
+            domain: Amazon domain (8 = amazon.fr)
             days: Number of days of history to retrieve
         Returns:
             Dictionary with price history or None if error

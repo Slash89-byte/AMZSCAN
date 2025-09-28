@@ -4,6 +4,7 @@ Unit tests for Amazon fees calculator module
 
 import unittest
 from core.amazon_fees import AmazonFeesCalculator
+from utils.config import Config
 
 
 class TestAmazonFeesCalculator(unittest.TestCase):
@@ -11,7 +12,12 @@ class TestAmazonFeesCalculator(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures before each test method."""
-        self.fees_calc = AmazonFeesCalculator('france')
+        # Create a test configuration
+        self.config = Config()
+        self.config.set_vat_rate(20.0)
+        self.config.set_apply_vat_on_cost(True)
+        
+        self.fees_calc = AmazonFeesCalculator('france', self.config)
         self.test_price = 29.99
         self.test_weight = 0.5
 
@@ -309,6 +315,124 @@ class TestAmazonFeesCalculator(unittest.TestCase):
         # Total should equal sum of components
         calculated_total = result['referral_fee'] + result['fba_fee'] + result['closing_fee']
         self.assertAlmostEqual(result['total_fees'], calculated_total, places=10)
+
+    def test_vat_configuration_integration(self):
+        """Test VAT configuration integration with fees calculator"""
+        # Test with VAT configuration
+        config_with_vat = Config()
+        config_with_vat.set_vat_rate(20.0)
+        config_with_vat.set_apply_vat_on_cost(True)
+        
+        calc_with_vat = AmazonFeesCalculator('france', config_with_vat)
+        
+        # Test without VAT configuration (should use defaults)
+        calc_without_vat = AmazonFeesCalculator('france')
+        
+        # Both should work but may have different internal behavior
+        result_with_vat = calc_with_vat.calculate_total_fees(100.0)
+        result_without_vat = calc_without_vat.calculate_total_fees(100.0)
+        
+        self.assertIsInstance(result_with_vat, dict)
+        self.assertIsInstance(result_without_vat, dict)
+    
+    def test_apply_vat_to_cost(self):
+        """Test VAT application to cost prices"""
+        cost_price = 100.0
+        vat_rate = 20.0
+        
+        # Test VAT application
+        vat_inclusive_cost = self.fees_calc.apply_vat_to_cost(cost_price)
+        expected_cost = cost_price * (1 + vat_rate / 100)
+        
+        self.assertAlmostEqual(vat_inclusive_cost, expected_cost, places=2)
+        self.assertEqual(vat_inclusive_cost, 120.0)
+    
+    def test_remove_vat_from_price(self):
+        """Test VAT removal from selling prices"""
+        gross_price = 120.0
+        vat_rate = 20.0
+        
+        # Test VAT removal
+        net_price = self.fees_calc.remove_vat_from_price(gross_price)
+        expected_net = gross_price / (1 + vat_rate / 100)
+        
+        self.assertAlmostEqual(net_price, expected_net, places=2)
+        self.assertEqual(net_price, 100.0)
+    
+    def test_get_base_selling_price(self):
+        """Test getting base selling price for fee calculations"""
+        gross_price = 120.0
+        
+        # If VAT is included in Amazon prices, should remove VAT
+        base_price = self.fees_calc.get_base_selling_price(gross_price)
+        
+        # With default configuration (VAT included), should return net price
+        if self.config.get('vat_settings', {}).get('vat_included_in_amazon_prices', True):
+            expected_base = gross_price / (1 + self.config.get_vat_rate() / 100)
+            self.assertAlmostEqual(base_price, expected_base, places=2)
+        else:
+            # If VAT not included, should return gross price
+            self.assertEqual(base_price, gross_price)
+    
+    def test_vat_rate_variations(self):
+        """Test different VAT rates"""
+        # Test German VAT rate (19%)
+        german_config = Config()
+        german_config.set_vat_rate(19.0)
+        german_calc = AmazonFeesCalculator('germany', german_config)
+        
+        cost_price = 100.0
+        vat_inclusive_cost = german_calc.apply_vat_to_cost(cost_price)
+        
+        self.assertAlmostEqual(vat_inclusive_cost, 119.0, places=2)
+        
+        # Test Italian VAT rate (22%)
+        italian_config = Config()
+        italian_config.set_vat_rate(22.0)
+        italian_calc = AmazonFeesCalculator('italy', italian_config)
+        
+        vat_inclusive_cost_italy = italian_calc.apply_vat_to_cost(cost_price)
+        self.assertAlmostEqual(vat_inclusive_cost_italy, 122.0, places=2)
+    
+    def test_vat_on_off_scenarios(self):
+        """Test VAT application on/off scenarios"""
+        cost_price = 100.0
+        
+        # Test with VAT on cost enabled
+        config_vat_on = Config()
+        config_vat_on.set_apply_vat_on_cost(True)
+        config_vat_on.set_vat_rate(20.0)
+        calc_vat_on = AmazonFeesCalculator('france', config_vat_on)
+        
+        vat_cost = calc_vat_on.apply_vat_to_cost(cost_price)
+        self.assertEqual(vat_cost, 120.0)
+        
+        # Test with VAT on cost disabled
+        config_vat_off = Config()
+        config_vat_off.set_apply_vat_on_cost(False)
+        calc_vat_off = AmazonFeesCalculator('france', config_vat_off)
+        
+        no_vat_cost = calc_vat_off.apply_vat_to_cost(cost_price)
+        self.assertEqual(no_vat_cost, cost_price)  # Should return original cost
+    
+    def test_end_to_end_vat_workflow(self):
+        """Test complete VAT workflow from cost to final calculation"""
+        original_cost = 50.0
+        selling_price = 120.0
+        
+        # Apply VAT to cost
+        vat_adjusted_cost = self.fees_calc.apply_vat_to_cost(original_cost)
+        
+        # Calculate fees on selling price
+        fee_result = self.fees_calc.calculate_total_fees(selling_price)
+        
+        # Verify the complete workflow
+        self.assertEqual(vat_adjusted_cost, 60.0)  # 50 * 1.20
+        self.assertGreater(fee_result['total_fees'], 0)
+        self.assertLess(fee_result['total_fees'], selling_price)
+        
+        # Net proceeds should be positive for this scenario
+        self.assertGreater(fee_result['net_proceeds'], 0)
 
 
 if __name__ == '__main__':
