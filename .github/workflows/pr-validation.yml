@@ -1,0 +1,142 @@
+name: Pull Request Validation
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  pr-validation:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install pytest pytest-cov coverage xvfb
+    
+    - name: Run full test suite
+      id: run-tests
+      run: |
+        xvfb-run -a python -m pytest tests/ -v --tb=short
+    
+    - name: Run integration tests
+      id: integration-tests
+      run: |
+        xvfb-run -a python -m pytest tests/test_vat_integration.py -v --tb=short
+    
+    - name: Check test coverage
+      id: coverage-check
+      run: |
+        xvfb-run -a python -m pytest tests/ --cov=. --cov-report=term --cov-fail-under=70
+    
+    - name: Validate configuration system
+      id: config-validation
+      run: |
+        xvfb-run -a python -m pytest tests/test_config.py -v
+    
+    - name: Test VAT calculations
+      id: vat-test
+      run: |
+        xvfb-run -a python -c "
+        from core.amazon_fees import AmazonFeesCalculator
+        from core.roi_calculator import ROICalculator
+        from utils.config import Config
+        
+        # Quick smoke test for VAT functionality
+        config = Config()
+        config.set_vat_rate(20.0)
+        config.set_apply_vat_on_cost(True)
+        
+        fees = AmazonFeesCalculator('france', config)
+        roi = ROICalculator(config)
+        
+        # Test calculation
+        result = roi.calculate_roi(50.0, 100.0, 15.0)
+        assert result['cost_price'] == 60.0, f'Expected VAT-adjusted cost 60.0, got {result[\"cost_price\"]}'
+        print('✅ VAT functionality working correctly')
+        "
+    
+    - name: Comment PR status
+      uses: actions/github-script@v6
+      if: always()
+      with:
+        script: |
+          const { owner, repo } = context.repo;
+          const pr_number = context.payload.pull_request.number;
+          
+          let status = '✅ All checks passed!';
+          let color = '28a745';
+          
+          if ('${{ job.status }}' !== 'success') {
+            status = '❌ Some checks failed';
+            color = 'd73a49';
+          }
+          
+          const comment = `
+          ## 🔄 Pull Request Validation Results
+          
+          **Status:** ${status}
+          
+          ### Test Results:
+          - **Unit Tests:** ${{ steps['run-tests'].outcome == 'success' && '✅ Passed' || '❌ Failed' }}
+          - **Integration Tests:** ${{ steps['integration-tests'].outcome == 'success' && '✅ Passed' || '❌ Failed' }}
+          - **Test Coverage:** ${{ steps['coverage-check'].outcome == 'success' && '✅ Above 70%' || '❌ Below threshold' }}
+          - **VAT Functionality:** ${{ steps['vat-test'].outcome == 'success' && '✅ Working' || '❌ Issues detected' }}
+          
+          ### Next Steps:
+          ${status === '✅ All checks passed!' ? 
+            '🚀 This PR is ready for code review and merge!' : 
+            '🔧 Please address the failing checks before requesting review.'}
+          
+          *Automated validation completed at ${new Date().toISOString()}*
+          `;
+          
+          await github.rest.issues.createComment({
+            owner,
+            repo,
+            issue_number: pr_number,
+            body: comment
+          });
+
+  security-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  dependabot-auto-merge:
+    runs-on: ubuntu-latest
+    needs: pr-validation
+    if: ${{ github.actor == 'dependabot[bot]' && needs.pr-validation.result == 'success' }}
+    
+    steps:
+    - name: Enable auto-merge for Dependabot PRs
+      run: gh pr merge --auto --merge "$PR_URL"
+      env:
+        PR_URL: ${{github.event.pull_request.html_url}}
+        GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}

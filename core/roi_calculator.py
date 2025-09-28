@@ -33,6 +33,9 @@ class ROICalculator:
         Returns:
             Dictionary with profit calculations
         """
+        # Preserve original cost price for return value
+        original_cost_price = cost_price
+        
         # Apply VAT to cost if configured
         if self.config.get_apply_vat_on_cost():
             vat_rate = self.config.get_vat_rate()
@@ -61,7 +64,7 @@ class ROICalculator:
             profit_margin = 0.0
         
         return {
-            'cost_price': cost_price,
+            'cost_price': original_cost_price,
             'selling_price': selling_price,
             'amazon_fees': amazon_fees,
             'additional_costs': additional_costs,

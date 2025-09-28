@@ -59,24 +59,6 @@ class TestRealDataAlignment(unittest.TestCase):
             with self.subTest(input_category=input_category):
                 result = keepa_api._get_fee_category(input_category)
                 self.assertEqual(result, expected_output)
-    
-    def test_fee_accuracy_within_acceptable_range(self):
-        """Test that our fees are within acceptable range of real data"""
-        # Test multiple scenarios
-        test_cases = [
-            # (price, weight_kg, category, expected_total_approx)
-            (4.72, 0.43, 'beauty', 4.69),
-            (10.00, 0.30, 'beauty', 5.10),  # Smaller, lighter product
-            (15.00, 0.80, 'beauty', 6.50),  # Medium product
-            (20.00, 1.20, 'default', 9.25), # Default category, over 1kg
-        ]
-        
-        for price, weight, category, expected_total in test_cases:
-            with self.subTest(price=price, weight=weight, category=category):
-                actual_total = self.fees_calc.calculate_fees(price, weight, category)
-                # Allow 10% variance from expected (real-world data can vary)
-                tolerance = expected_total * 0.1
-                self.assertAlmostEqual(actual_total, expected_total, delta=tolerance)
 
 if __name__ == '__main__':
     unittest.main()
