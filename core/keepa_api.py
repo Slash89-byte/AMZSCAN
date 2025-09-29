@@ -43,23 +43,44 @@ class KeepaAPI:
             'jardin': 'home_garden',
         }
     
-    def get_product_data(self, asin: str, domain: int = 4) -> Optional[Dict[str, Any]]:
+    def get_product_data(self, product_id: str, domain: int = 4) -> Optional[Dict[str, Any]]:
         """
         Get product data from Keepa API
         Args:
-            asin: Amazon ASIN
+            product_id: Product identifier (ASIN, EAN, UPC, GTIN)
             domain: Amazon domain (4 = amazon.fr)
         Returns:
             Dictionary with product data or None if error
         """
         try:
             url = f"{self.base_url}/product"
+            
+            # Determine identifier type and set appropriate parameter
+            from utils.identifiers import detect_and_validate_identifier
+            result = detect_and_validate_identifier(product_id)
+            
+            if not result['is_valid']:
+                print(f"Invalid product identifier: {product_id}")
+                return None
+            
             params = {
                 'key': self.api_key,
                 'domain': domain,
-                'asin': asin,
                 'stats': 1
             }
+            
+            # Use appropriate parameter based on identifier type
+            identifier_type = result['identifier_type']
+            normalized_id = result['normalized_code']
+            
+            if identifier_type == "ASIN":
+                params['asin'] = normalized_id
+            elif identifier_type in ["EAN", "UPC", "GTIN"]:
+                # Keepa API supports EAN/UPC/GTIN lookup
+                params['code'] = normalized_id
+            else:
+                print(f"Unsupported identifier type for Keepa API: {identifier_type}")
+                return None
             
             response = self.session.get(url, params=params, timeout=10)
             response.raise_for_status()

@@ -13,6 +13,7 @@ from core.amazon_fees import AmazonFeesCalculator
 from core.keepa_api import KeepaAPI
 from core.roi_calculator import ROICalculator
 from utils.config import Config
+from utils.identifiers import detect_and_validate_identifier
 from gui.config_dialog import ConfigurationDialog
 
 class AnalysisWorker(QThread):
@@ -20,9 +21,9 @@ class AnalysisWorker(QThread):
     analysis_complete = pyqtSignal(dict)
     error_occurred = pyqtSignal(str)
     
-    def __init__(self, asin, cost_price, config):
+    def __init__(self, product_id, cost_price, config):
         super().__init__()
-        self.asin = asin
+        self.product_id = product_id
         self.cost_price = cost_price
         self.config = config
     
@@ -33,13 +34,16 @@ class AnalysisWorker(QThread):
             fees_calc = AmazonFeesCalculator('france', self.config)
             roi_calc = ROICalculator(self.config)
             
-            # Get product data from Keepa
-            product_data = keepa_api.get_product_data(self.asin)
+            # Get product data from Keepa (now supports multiple identifier types)
+            product_data = keepa_api.get_product_data(self.product_id)
             if not product_data:
+                # Detect identifier type for better error message
+                result = detect_and_validate_identifier(self.product_id)
+                identifier_type = result['identifier_type']
                 error_msg = (
-                    f"Failed to fetch product data for ASIN: {self.asin}\n\n"
+                    f"Failed to fetch product data for {identifier_type}: {self.product_id}\n\n"
                     "Possible causes:\n"
-                    "• Invalid ASIN\n"
+                    f"• Invalid or non-existent {identifier_type}\n"
                     "• Product not available in France marketplace\n"
                     "• Keepa API key issues\n"
                     "• API rate limit exceeded\n"
@@ -51,13 +55,15 @@ class AnalysisWorker(QThread):
             # Validate price data
             current_price = product_data.get('current_price', 0)
             if current_price <= 0:
+                identifier_result = detect_and_validate_identifier(self.product_id)
+                identifier_type = identifier_result['identifier_type']
                 error_msg = (
-                    f"No current Buy Box price available for ASIN: {self.asin}\n\n"
+                    f"No current Buy Box price available for {identifier_type}: {self.product_id}\n\n"
                     "The product might be:\n"
                     "• Out of stock\n"
                     "• Not sold by Amazon\n"
                     "• Buy Box price data temporarily unavailable\n\n"
-                    "Try a different ASIN or check later."
+                    f"Try a different {identifier_type} or check later."
                 )
                 self.error_occurred.emit(error_msg)
                 return
@@ -74,9 +80,14 @@ class AnalysisWorker(QThread):
                 amazon_fees=amazon_fees
             )
             
+            # Get identifier type information
+            identifier_result = detect_and_validate_identifier(self.product_id)
+            
             # Compile results
             results = {
-                'asin': self.asin,
+                'product_id': self.product_id,
+                'identifier_type': identifier_result['identifier_type'],
+                'asin': product_data.get('asin', self.product_id),  # Use ASIN from response if available
                 'product_title': product_data.get('title', 'Unknown'),
                 'current_price': current_price,
                 'cost_price': self.cost_price,
@@ -203,22 +214,28 @@ class MainWindow(QMainWindow):
         group = QGroupBox("Product Analysis")
         layout = QGridLayout(group)
         
-        # ASIN input
-        layout.addWidget(QLabel("ASIN:"), 0, 0)
-        self.asin_input = QLineEdit()
-        self.asin_input.setPlaceholderText("Enter Amazon ASIN (e.g., B08N5WRWNW)")
-        layout.addWidget(self.asin_input, 0, 1)
+        # Product identifier input (supports multiple formats)
+        layout.addWidget(QLabel("Product ID:"), 0, 0)
+        self.product_input = QLineEdit()
+        self.product_input.setPlaceholderText("Enter ASIN, GTIN, EAN, or UPC (e.g., B0BQBXBW88, 4003994155486)")
+        self.product_input.textChanged.connect(self.on_product_input_changed)
+        layout.addWidget(self.product_input, 0, 1)
+        
+        # Identifier validation feedback
+        self.identifier_label = QLabel("")
+        self.identifier_label.setStyleSheet("color: gray; font-size: 11px;")
+        layout.addWidget(self.identifier_label, 1, 1)
         
         # Cost price input
-        layout.addWidget(QLabel("Your Cost Price (€):"), 1, 0)
+        layout.addWidget(QLabel("Your Cost Price (€):"), 2, 0)
         self.cost_input = QLineEdit()
         self.cost_input.setPlaceholderText("Enter your cost price in euros")
-        layout.addWidget(self.cost_input, 1, 1)
+        layout.addWidget(self.cost_input, 2, 1)
         
         # Analyze button
         self.analyze_button = QPushButton("Analyze Profitability")
         self.analyze_button.clicked.connect(self.analyze_product)
-        layout.addWidget(self.analyze_button, 2, 0, 1, 2)
+        layout.addWidget(self.analyze_button, 3, 0, 1, 2)
         
         return group
     
@@ -233,13 +250,52 @@ class MainWindow(QMainWindow):
         
         return group
     
+    def on_product_input_changed(self):
+        """Handle product input changes and provide real-time validation feedback"""
+        product_code = self.product_input.text().strip()
+        
+        if not product_code:
+            self.identifier_label.setText("")
+            self.identifier_label.setStyleSheet("color: gray; font-size: 11px;")
+            return
+        
+        # Detect and validate identifier
+        result = detect_and_validate_identifier(product_code)
+        
+        if result['is_valid']:
+            identifier_type = result['identifier_type']
+            formatted_code = result['formatted_code']
+            self.identifier_label.setText(f"✓ Valid {identifier_type}: {formatted_code}")
+            self.identifier_label.setStyleSheet("color: green; font-size: 11px;")
+        elif result['identifier_type'] != "UNKNOWN":
+            identifier_type = result['identifier_type']
+            self.identifier_label.setText(f"⚠ Invalid {identifier_type} (check format)")
+            self.identifier_label.setStyleSheet("color: orange; font-size: 11px;")
+        else:
+            self.identifier_label.setText("❌ Unknown identifier format")
+            self.identifier_label.setStyleSheet("color: red; font-size: 11px;")
+    
     def analyze_product(self):
-        asin = self.asin_input.text().strip()
+        product_id = self.product_input.text().strip()
         cost_price_text = self.cost_input.text().strip()
         
-        # Validation
-        if not asin:
-            QMessageBox.warning(self, "Input Error", "Please enter an ASIN")
+        # Validation - check if product ID is provided
+        if not product_id:
+            QMessageBox.warning(self, "Input Error", "Please enter a product identifier (ASIN, GTIN, EAN, or UPC)")
+            return
+        
+        # Validate the product identifier
+        result = detect_and_validate_identifier(product_id)
+        if not result['is_valid']:
+            QMessageBox.warning(self, "Input Error", 
+                              f"Invalid {result['identifier_type']} format. Please check your input.")
+            return
+        
+        # All supported identifier types can be used with Keepa API
+        if not result['can_use_for_lookup']:
+            QMessageBox.warning(self, "Unsupported Format", 
+                              f"The {result['identifier_type']} format cannot be used for product lookup. "
+                              f"Please use ASIN, EAN, UPC, or GTIN.")
             return
         
         try:
@@ -256,10 +312,11 @@ class MainWindow(QMainWindow):
                               "Keepa API key not configured. Please check settings.")
             return
         
-        # Start analysis
-        self.start_analysis(asin, cost_price)
+        # Start analysis with validated product identifier
+        product_id = result['normalized_code']
+        self.start_analysis(product_id, cost_price)
     
-    def start_analysis(self, asin, cost_price):
+    def start_analysis(self, product_id, cost_price):
         self.analyze_button.setEnabled(False)
         self.progress_bar.setVisible(True)
         self.progress_bar.setRange(0, 0)  # Indeterminate progress
@@ -267,7 +324,7 @@ class MainWindow(QMainWindow):
         self.results_text.clear()
         
         # Start worker thread
-        self.worker = AnalysisWorker(asin, cost_price, self.config)
+        self.worker = AnalysisWorker(product_id, cost_price, self.config)
         self.worker.analysis_complete.connect(self.on_analysis_complete)
         self.worker.error_occurred.connect(self.on_analysis_error)
         self.worker.start()
@@ -283,7 +340,7 @@ class MainWindow(QMainWindow):
         
         results_html = f"""
         <h3>Product Analysis Results</h3>
-        <p><strong>ASIN:</strong> {results['asin']}</p>
+        <p><strong>Product ID:</strong> {results['product_id']} ({results['identifier_type']})</p>
         <p><strong>Product:</strong> {results['product_title']}</p>
         <hr>
         <p><strong>Current Buy Box Price:</strong> €{results['current_price']:.2f}</p>
