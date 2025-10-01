@@ -25,7 +25,7 @@ class TestAmazonFeesCalculator(unittest.TestCase):
         """Test initialization with default marketplace"""
         calc = AmazonFeesCalculator()
         self.assertEqual(calc.marketplace, 'france')
-        self.assertEqual(calc.vat_rate, 20.0)  # VAT rate stored as percentage
+        self.assertEqual(calc.vat_rate, 0.20)  # VAT rate returned as decimal from config
         self.assertIn('default', calc.referral_fees)
         self.assertIn('small_standard', calc.fba_fees)
 

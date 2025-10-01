@@ -40,7 +40,7 @@ class TestConfig(unittest.TestCase):
         
         # Test VAT settings
         vat_settings = config.get('vat_settings', {})
-        self.assertEqual(vat_settings.get('vat_rate'), 20.0)
+        self.assertEqual(vat_settings.get('vat_rate'), 0.20)  # Stored as decimal in config
         self.assertTrue(vat_settings.get('apply_vat_on_cost'))
         self.assertFalse(vat_settings.get('apply_vat_on_sales'))
         
@@ -66,7 +66,7 @@ class TestConfig(unittest.TestCase):
         
         # Test getting nested key
         vat_rate = config.get('vat_settings.vat_rate')
-        self.assertEqual(vat_rate, 20.0)
+        self.assertEqual(vat_rate, 0.20)  # Stored as decimal in vat_settings
     
     def test_set_method(self):
         """Test the set method"""
@@ -84,12 +84,12 @@ class TestConfig(unittest.TestCase):
         """Test VAT-specific helper methods"""
         config = Config()
         
-        # Test default VAT rate
-        self.assertEqual(config.get_vat_rate(), 20.0)
+        # Test default VAT rate (returned as decimal)
+        self.assertEqual(config.get_vat_rate(), 0.20)
         
-        # Test setting VAT rate
-        config.set_vat_rate(21.0)
-        self.assertEqual(config.get_vat_rate(), 21.0)
+        # Test setting VAT rate (input as decimal)
+        config.set_vat_rate(0.21)
+        self.assertEqual(config.get_vat_rate(), 0.21)
         
         # Test default VAT application on cost
         self.assertTrue(config.get_apply_vat_on_cost())

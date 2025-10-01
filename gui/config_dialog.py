@@ -39,6 +39,7 @@ class ConfigurationDialog(QDialog):
         self.create_vat_tax_tab()
         self.create_analysis_tab()
         self.create_business_model_tab()
+        self.create_enhanced_fees_tab()
         self.create_advanced_tab()
         
         layout.addWidget(self.tab_widget)
@@ -119,7 +120,7 @@ class ConfigurationDialog(QDialog):
         vat_layout = QFormLayout()
         
         self.vat_rate_spin = QDoubleSpinBox()
-        self.vat_rate_spin.setRange(0.0, 0.5)  # 0% to 50%
+        self.vat_rate_spin.setRange(0.0, 50.0)  # 0% to 50%
         self.vat_rate_spin.setSuffix("%")
         self.vat_rate_spin.setDecimals(2)
         self.vat_rate_spin.setValue(20.0)  # Default 20%
@@ -274,6 +275,113 @@ class ConfigurationDialog(QDialog):
         tab.setLayout(layout)
         self.tab_widget.addTab(tab, "Business Model")
     
+    def create_enhanced_fees_tab(self):
+        """Create enhanced Amazon fees configuration tab"""
+        tab = QWidget()
+        layout = QVBoxLayout()
+        
+        # Additional Fees Group
+        fees_group = QGroupBox("Additional Amazon Fees")
+        fees_layout = QVBoxLayout()
+        
+        # Description
+        description_label = QLabel(
+            "Configure additional Amazon fees that will be included in profit calculations.\n"
+            "Each fee can be set as either a percentage of the selling price or a fixed amount."
+        )
+        description_label.setWordWrap(True)
+        fees_layout.addWidget(description_label)
+        
+        # Create fee configuration sections
+        self.create_fee_config_section(fees_layout, "prep_fee", "FBA Prep Service Fee", 
+                                     "Fees for Amazon to prep your products (polybagging, labeling, etc.)")
+        
+        self.create_fee_config_section(fees_layout, "inbound_shipping", "Inbound Shipping Fee",
+                                     "Cost to ship inventory to Amazon warehouses")
+        
+        self.create_fee_config_section(fees_layout, "digital_services", "Digital Services Tax",
+                                     "Digital services tax (varies by country)")
+        
+        self.create_fee_config_section(fees_layout, "misc_fee", "Miscellaneous Fee",
+                                     "Any other recurring fees (packaging, removal, etc.)")
+        
+        fees_group.setLayout(fees_layout)
+        layout.addWidget(fees_group)
+        
+        # Storage Configuration Group
+        storage_group = QGroupBox("Storage Fee Configuration")
+        storage_layout = QFormLayout()
+        
+        self.storage_months_spin = QSpinBox()
+        self.storage_months_spin.setRange(1, 24)
+        self.storage_months_spin.setValue(3)
+        self.storage_months_spin.setSuffix(" months")
+        storage_layout.addRow("Default Storage Period:", self.storage_months_spin)
+        
+        storage_group.setLayout(storage_layout)
+        layout.addWidget(storage_group)
+        
+        # VAT on Fees Group
+        vat_fees_group = QGroupBox("VAT on Amazon Fees")
+        vat_fees_layout = QFormLayout()
+        
+        self.vat_on_fees_checkbox = QCheckBox()
+        self.vat_on_fees_checkbox.setToolTip("Apply VAT to all Amazon fees (referral, FBA, storage, etc.)")
+        vat_fees_layout.addRow("Apply VAT to Amazon Fees:", self.vat_on_fees_checkbox)
+        
+        vat_fees_group.setLayout(vat_fees_layout)
+        layout.addWidget(vat_fees_group)
+        
+        layout.addStretch()
+        tab.setLayout(layout)
+        self.tab_widget.addTab(tab, "Enhanced Fees")
+    
+    def create_fee_config_section(self, parent_layout, fee_key, title, description):
+        """Create a configuration section for a specific fee type"""
+        # Create group box for this fee
+        fee_group = QGroupBox(title)
+        fee_layout = QVBoxLayout()
+        
+        # Description
+        desc_label = QLabel(description)
+        desc_label.setWordWrap(True)
+        desc_label.setStyleSheet("color: #666; font-style: italic;")
+        fee_layout.addWidget(desc_label)
+        
+        # Configuration layout
+        config_layout = QHBoxLayout()
+        
+        # Enable checkbox
+        enable_checkbox = QCheckBox("Enable this fee")
+        setattr(self, f"{fee_key}_enabled_checkbox", enable_checkbox)
+        config_layout.addWidget(enable_checkbox)
+        
+        # Type selection
+        type_combo = QComboBox()
+        type_combo.addItems(["Fixed Amount (€)", "Percentage (%)"])
+        setattr(self, f"{fee_key}_type_combo", type_combo)
+        config_layout.addWidget(type_combo)
+        
+        # Value input
+        value_spin = QDoubleSpinBox()
+        value_spin.setRange(0.0, 9999.99)
+        value_spin.setDecimals(2)
+        value_spin.setSingleStep(0.01)
+        setattr(self, f"{fee_key}_value_spin", value_spin)
+        config_layout.addWidget(value_spin)
+        
+        # Connect signals to update suffix based on type
+        def update_suffix():
+            suffix = " €" if type_combo.currentText().startswith("Fixed") else " %"
+            value_spin.setSuffix(suffix)
+        
+        type_combo.currentTextChanged.connect(update_suffix)
+        update_suffix()  # Set initial suffix
+        
+        fee_layout.addLayout(config_layout)
+        fee_group.setLayout(fee_layout)
+        parent_layout.addWidget(fee_group)
+    
     def create_advanced_tab(self):
         """Create advanced settings tab"""
         tab = QWidget()
@@ -393,6 +501,37 @@ class ConfigurationDialog(QDialog):
         self.show_advanced_checkbox.setChecked(self.config.get('ui_settings.show_advanced_options', False))
         self.show_tooltips_checkbox.setChecked(self.config.get('ui_settings.show_tooltips', True))
         self.cache_duration_spin.setValue(self.config.get('api_settings.cache_duration_minutes', 15))
+        
+        # Enhanced fees tab
+        self._load_fee_settings('prep_fee')
+        self._load_fee_settings('inbound_shipping')
+        self._load_fee_settings('digital_services')
+        self._load_fee_settings('misc_fee')
+        
+        self.storage_months_spin.setValue(self.config.get('enhanced_fees.storage_months', 3))
+        self.vat_on_fees_checkbox.setChecked(self.config.get('enhanced_fees.vat_on_fees.enabled', False))
+    
+    def _load_fee_settings(self, fee_key):
+        """Load settings for a specific fee type"""
+        enabled_checkbox = getattr(self, f"{fee_key}_enabled_checkbox")
+        type_combo = getattr(self, f"{fee_key}_type_combo")
+        value_spin = getattr(self, f"{fee_key}_value_spin")
+        
+        enabled_checkbox.setChecked(self.config.get(f'enhanced_fees.{fee_key}.enabled', False))
+        fee_type = self.config.get(f'enhanced_fees.{fee_key}.type', 'fixed')
+        type_combo.setCurrentText("Percentage (%)" if fee_type == 'percentage' else "Fixed Amount (€)")
+        value_spin.setValue(self.config.get(f'enhanced_fees.{fee_key}.value', 0.0))
+    
+    def _save_fee_settings(self, fee_key):
+        """Save settings for a specific fee type"""
+        enabled_checkbox = getattr(self, f"{fee_key}_enabled_checkbox")
+        type_combo = getattr(self, f"{fee_key}_type_combo")
+        value_spin = getattr(self, f"{fee_key}_value_spin")
+        
+        self.config.set(f'enhanced_fees.{fee_key}.enabled', enabled_checkbox.isChecked())
+        fee_type = 'percentage' if type_combo.currentText().startswith('Percentage') else 'fixed'
+        self.config.set(f'enhanced_fees.{fee_key}.type', fee_type)
+        self.config.set(f'enhanced_fees.{fee_key}.value', value_spin.value())
     
     def save_configuration(self):
         """Save configuration from UI elements"""
@@ -433,6 +572,15 @@ class ConfigurationDialog(QDialog):
             self.config.set('ui_settings.show_advanced_options', self.show_advanced_checkbox.isChecked())
             self.config.set('ui_settings.show_tooltips', self.show_tooltips_checkbox.isChecked())
             self.config.set('api_settings.cache_duration_minutes', self.cache_duration_spin.value())
+            
+            # Enhanced fees settings
+            self._save_fee_settings('prep_fee')
+            self._save_fee_settings('inbound_shipping')
+            self._save_fee_settings('digital_services')
+            self._save_fee_settings('misc_fee')
+            
+            self.config.set('enhanced_fees.storage_months', self.storage_months_spin.value())
+            self.config.set('enhanced_fees.vat_on_fees.enabled', self.vat_on_fees_checkbox.isChecked())
             
             # Save to file
             self.config.save_config()

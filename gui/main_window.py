@@ -9,9 +9,9 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont, QAction
 
-from core.amazon_fees import AmazonFeesCalculator
+from core.enhanced_amazon_fees import EnhancedAmazonFeesCalculator
 from core.keepa_api import KeepaAPI
-from core.roi_calculator import ROICalculator
+from core.enhanced_roi_calculator import EnhancedROICalculator
 from utils.config import Config
 from utils.identifiers import detect_and_validate_identifier
 from gui.config_dialog import ConfigurationDialog
@@ -31,8 +31,8 @@ class AnalysisWorker(QThread):
         try:
             # Initialize components with configuration
             keepa_api = KeepaAPI(self.config.get('keepa_api_key'))
-            fees_calc = AmazonFeesCalculator('france', self.config)
-            roi_calc = ROICalculator(self.config)
+            fees_calc = EnhancedAmazonFeesCalculator('france', self.config)
+            roi_calc = EnhancedROICalculator(self.config)
             
             # Get product data from Keepa (now supports multiple identifier types)
             product_data = keepa_api.get_product_data(self.product_id)
@@ -68,22 +68,24 @@ class AnalysisWorker(QThread):
                 self.error_occurred.emit(error_msg)
                 return
             
-            # Calculate fees using the appropriate category
+            # Calculate comprehensive ROI using enhanced calculator
             current_price = product_data.get('current_price', 0)
             fee_category = product_data.get('fee_category', 'default')
-            amazon_fees = fees_calc.calculate_fees(current_price, product_data.get('weight', 0.5), fee_category)
+            product_weight = product_data.get('weight', 0.5)
             
-            # Calculate ROI
-            roi_data = roi_calc.calculate_roi(
+            # Use comprehensive ROI calculation with Keepa data
+            roi_data = roi_calc.calculate_comprehensive_roi(
                 cost_price=self.cost_price,
                 selling_price=current_price,
-                amazon_fees=amazon_fees
+                weight_kg=product_weight,
+                category=fee_category,
+                keepa_data=product_data.get('raw_data')  # Pass raw Keepa data for dimensions
             )
             
             # Get identifier type information
             identifier_result = detect_and_validate_identifier(self.product_id)
             
-            # Compile results
+            # Compile results with enhanced data
             results = {
                 'product_id': self.product_id,
                 'identifier_type': identifier_result['identifier_type'],
@@ -91,10 +93,14 @@ class AnalysisWorker(QThread):
                 'product_title': product_data.get('title', 'Unknown'),
                 'current_price': current_price,
                 'cost_price': self.cost_price,
-                'amazon_fees': amazon_fees,
+                'amazon_fees': roi_data['total_amazon_fees'],  # Use total fees from enhanced calculation
                 'profit': roi_data['profit'],
                 'roi_percentage': roi_data['roi_percentage'],
-                'is_profitable': roi_data['roi_percentage'] >= self.config.get('min_roi_threshold', 15)
+                'profit_margin': roi_data['profit_margin'],
+                'profitability_score': roi_data['profitability_score'],
+                'is_profitable': roi_data['is_profitable'],
+                'enhanced_analysis': roi_data,  # Include full enhanced analysis
+                'calculation_notes': roi_data['calculation_notes']
             }
             
             self.analysis_complete.emit(results)
@@ -334,22 +340,63 @@ class MainWindow(QMainWindow):
         self.progress_bar.setVisible(False)
         self.status_label.setText("Analysis complete!")
         
-        # Format results
+        # Format results with enhanced information
         roi_color = "green" if results['is_profitable'] else "red"
         profitability_text = "✅ PROFITABLE" if results['is_profitable'] else "❌ NOT PROFITABLE"
         
+        # Get enhanced analysis data
+        enhanced = results.get('enhanced_analysis', {})
+        
+        # Build detailed fee breakdown
+        fee_breakdown = enhanced.get('amazon_fees_breakdown', {})
+        fee_details = ""
+        if fee_breakdown:
+            fee_details = f"""
+            <h4>📋 Detailed Fee Breakdown:</h4>
+            <ul>
+                <li>Referral Fee: €{fee_breakdown.get('referral_fee', 0):.2f}</li>
+                <li>FBA Fee: €{fee_breakdown.get('fba_fee', 0):.2f}</li>
+                <li>Storage Fee: €{fee_breakdown.get('storage_fee', 0):.2f}</li>
+                <li>Prep Fee: €{fee_breakdown.get('prep_fee', 0):.2f}</li>
+                <li>Inbound Shipping: €{fee_breakdown.get('inbound_shipping', 0):.2f}</li>
+                <li>Digital Services: €{fee_breakdown.get('digital_services', 0):.2f}</li>
+                <li>Misc Fee: €{fee_breakdown.get('misc_fee', 0):.2f}</li>
+                <li>VAT on Fees: €{fee_breakdown.get('vat_on_fees', 0):.2f}</li>
+            </ul>
+            """
+        
+        # Build calculation notes
+        notes_html = ""
+        notes = results.get('calculation_notes', [])
+        if notes:
+            notes_html = f"""
+            <h4>📝 Calculation Notes:</h4>
+            <ul>
+                {''.join([f'<li>{note}</li>' for note in notes])}
+            </ul>
+            """
+        
+        # Additional metrics
+        profit_margin = results.get('profit_margin', 0)
+        profitability_score = results.get('profitability_score', 0)
+        
         results_html = f"""
-        <h3>Product Analysis Results</h3>
+        <h3>🔍 Product Analysis Results</h3>
         <p><strong>Product ID:</strong> {results['product_id']} ({results['identifier_type']})</p>
         <p><strong>Product:</strong> {results['product_title']}</p>
         <hr>
+        <h4>💰 Financial Analysis:</h4>
         <p><strong>Current Buy Box Price:</strong> €{results['current_price']:.2f}</p>
         <p><strong>Your Cost Price:</strong> €{results['cost_price']:.2f}</p>
-        <p><strong>Amazon Fees:</strong> €{results['amazon_fees']:.2f}</p>
-        <p><strong>Profit:</strong> €{results['profit']:.2f}</p>
+        <p><strong>Total Amazon Fees:</strong> €{results['amazon_fees']:.2f}</p>
+        <p><strong>Net Profit:</strong> €{results['profit']:.2f}</p>
         <hr>
-        <h2 style="color: {roi_color}">ROI: {results['roi_percentage']:.1f}%</h2>
+        <h2 style="color: {roi_color}">📊 ROI: {results['roi_percentage']:.1f}%</h2>
+        <h3>📈 Profit Margin: {profit_margin:.1f}%</h3>
+        <h3>⭐ Profitability Score: {profitability_score:.1f}/100</h3>
         <h3 style="color: {roi_color}">{profitability_text}</h3>
+        {fee_details}
+        {notes_html}
         """
         
         self.results_text.setHtml(results_html)

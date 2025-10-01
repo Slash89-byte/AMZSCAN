@@ -5,15 +5,86 @@
   "default_weight_kg": 0.5,
   "default_category": "default",
   "currency_symbol": "€",
-  "vat_rate": 0.20,
+  "vat_rate": 0.2,
   "ui_settings": {
     "window_width": 800,
     "window_height": 600,
-    "theme": "default"
+    "theme": "default",
+    "show_advanced_options": false,
+    "decimal_places": 2,
+    "show_tooltips": true
   },
   "api_settings": {
     "request_timeout": 30,
     "max_retries": 3,
-    "rate_limit_delay": 1.0
+    "rate_limit_delay": 1.0,
+    "keepa_api_key": "",
+    "default_domain": "france",
+    "amazon_domain": 4,
+    "currency_symbol": "€",
+    "cache_duration_minutes": 15
+  },
+  "vat_settings": {
+    "vat_rate": 0.20,
+    "apply_vat_on_cost": true,
+    "apply_vat_on_sale": false,
+    "vat_included_in_amazon_prices": true
+  },
+  "analysis_settings": {
+    "min_roi_threshold": 15.0,
+    "max_cost_price": 500.0,
+    "profit_margin_threshold": 10.0,
+    "consider_sales_rank": true,
+    "max_acceptable_sales_rank": 100000,
+    "min_review_count": 0,
+    "min_rating": 0.0,
+    "check_buy_box_eligibility": true
+  },
+  "business_model_settings": {
+    "business_model": "retail_arbitrage",
+    "risk_tolerance": "medium",
+    "additional_cost_percentage": 0.0,
+    "shipping_cost_per_unit": 0.0,
+    "prep_cost_per_unit": 0.0
+  },
+  "advanced_settings": {
+    "enable_debug_mode": false,
+    "auto_save_results": true,
+    "cache_keepa_data": true,
+    "enable_logging": false,
+    "log_level": "INFO"
+  },
+  "profit_margin_threshold": 10.0,
+  "business_model": {
+    "model_type": "retail_arbitrage",
+    "additional_cost_percentage": 0.0,
+    "shipping_cost_per_unit": 0.0,
+    "prep_cost_per_unit": 0.0
+  },
+  "enhanced_fees": {
+    "prep_fee": {
+      "enabled": false,
+      "type": "fixed",
+      "value": 0.0
+    },
+    "inbound_shipping": {
+      "enabled": true,
+      "type": "fixed",
+      "value": 0.12
+    },
+    "digital_services": {
+      "enabled": false,
+      "type": "fixed",
+      "value": 0.0
+    },
+    "misc_fee": {
+      "enabled": false,
+      "type": "fixed",
+      "value": 0.0
+    },
+    "storage_months": 3,
+    "vat_on_fees": {
+      "enabled": false
+    }
   }
 }
