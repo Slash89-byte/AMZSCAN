@@ -85,15 +85,20 @@ class TestKeepaAPI(unittest.TestCase):
         
         # Verify parsed result
         self.assertIsNotNone(result)
-        self.assertEqual(result['asin'], self.expected_parsed_data['asin'])
-        self.assertEqual(result['title'], self.expected_parsed_data['title'])
-        self.assertEqual(result['current_price'], self.expected_parsed_data['current_price'])
-        self.assertEqual(result['sales_rank'], self.expected_parsed_data['sales_rank'])
-        self.assertEqual(result['review_count'], self.expected_parsed_data['review_count'])
-        self.assertEqual(result['rating'], self.expected_parsed_data['rating'])
-        self.assertEqual(result['category'], self.expected_parsed_data['category'])
-        self.assertEqual(result['weight'], self.expected_parsed_data['weight'])
-        self.assertEqual(result['in_stock'], self.expected_parsed_data['in_stock'])
+        self.assertTrue(result.get('success', False))
+        self.assertIsNone(result.get('error'))
+        
+        # Extract data from new format
+        data = result.get('data', {})
+        self.assertEqual(data['asin'], self.expected_parsed_data['asin'])
+        self.assertEqual(data['title'], self.expected_parsed_data['title'])
+        self.assertEqual(data['current_price'], self.expected_parsed_data['current_price'])
+        self.assertEqual(data['sales_rank'], self.expected_parsed_data['sales_rank'])
+        self.assertEqual(data['review_count'], self.expected_parsed_data['review_count'])
+        self.assertEqual(data['rating'], self.expected_parsed_data['rating'])
+        self.assertEqual(data['category'], self.expected_parsed_data['category'])
+        self.assertEqual(data['weight'], self.expected_parsed_data['weight'])
+        self.assertEqual(data['in_stock'], self.expected_parsed_data['in_stock'])
 
     @patch('core.keepa_api.requests.Session.get')
     def test_get_product_data_with_custom_domain(self, mock_get):
@@ -128,7 +133,9 @@ class TestKeepaAPI(unittest.TestCase):
         
         result = self.keepa_api.get_product_data(self.test_asin)
         
-        self.assertIsNone(result)
+        self.assertIsInstance(result, dict)
+        self.assertFalse(result.get('success', True))
+        self.assertEqual(result.get('error'), 'No product data found')
 
     @patch('core.keepa_api.requests.Session.get')
     def test_get_product_data_no_products_key(self, mock_get):
@@ -140,7 +147,9 @@ class TestKeepaAPI(unittest.TestCase):
         
         result = self.keepa_api.get_product_data(self.test_asin)
         
-        self.assertIsNone(result)
+        self.assertIsInstance(result, dict)
+        self.assertFalse(result.get('success', True))
+        self.assertIn('error', result)
 
     @patch('core.keepa_api.requests.Session.get')
     def test_get_product_data_request_exception(self, mock_get):
@@ -149,7 +158,9 @@ class TestKeepaAPI(unittest.TestCase):
         
         result = self.keepa_api.get_product_data(self.test_asin)
         
-        self.assertIsNone(result)
+        self.assertIsInstance(result, dict)
+        self.assertFalse(result.get('success', True))
+        self.assertIn('error', result)
 
     @patch('core.keepa_api.requests.Session.get')
     def test_get_product_data_json_decode_error(self, mock_get):
@@ -161,13 +172,22 @@ class TestKeepaAPI(unittest.TestCase):
         
         result = self.keepa_api.get_product_data(self.test_asin)
         
-        self.assertIsNone(result)
+        self.assertIsInstance(result, dict)
+        self.assertFalse(result.get('success', True))
+        self.assertIn('error', result)
 
     def test_parse_product_data(self):
         """Test the product data parsing functionality"""
         raw_product = self.sample_keepa_response["products"][0]
         
-        parsed_data = self.keepa_api._parse_product_data(raw_product)
+        parsed_result = self.keepa_api._parse_product_data(raw_product)
+        
+        # Verify the new format with success and data fields
+        self.assertTrue(parsed_result.get('success', False))
+        self.assertIsNone(parsed_result.get('error'))
+        
+        # Extract data from new format
+        parsed_data = parsed_result.get('data', {})
         
         # Verify all fields are parsed correctly
         self.assertEqual(parsed_data['asin'], "B08N5WRWNW")
@@ -192,7 +212,11 @@ class TestKeepaAPI(unittest.TestCase):
             "rating": 0
         }
         
-        parsed_data = self.keepa_api._parse_product_data(raw_product)
+        parsed_result = self.keepa_api._parse_product_data(raw_product)
+        
+        # Verify the new format
+        self.assertTrue(parsed_result.get('success', False))
+        parsed_data = parsed_result.get('data', {})
         
         self.assertEqual(parsed_data['current_price'], 0.0)
         self.assertEqual(parsed_data['rating'], 0.0)
@@ -204,7 +228,11 @@ class TestKeepaAPI(unittest.TestCase):
             "title": "Test Product"
         }
         
-        parsed_data = self.keepa_api._parse_product_data(raw_product)
+        parsed_result = self.keepa_api._parse_product_data(raw_product)
+        
+        # Verify the new format
+        self.assertTrue(parsed_result.get('success', False))
+        parsed_data = parsed_result.get('data', {})
         
         self.assertEqual(parsed_data['current_price'], 0.0)
         self.assertIsNone(parsed_data['sales_rank'])
@@ -221,7 +249,8 @@ class TestKeepaAPI(unittest.TestCase):
             "title": "Test Product",
             "categoryTree": ["Electronics", "Computers"]
         }
-        parsed_data = self.keepa_api._parse_product_data(raw_product_string)
+        parsed_result = self.keepa_api._parse_product_data(raw_product_string)
+        parsed_data = parsed_result.get('data', {})
         self.assertEqual(parsed_data['category'], "Electronics")
         
         # Test with dict category
@@ -230,7 +259,8 @@ class TestKeepaAPI(unittest.TestCase):
             "title": "Test Product",
             "categoryTree": [{"name": "Books", "id": 283155}]
         }
-        parsed_data = self.keepa_api._parse_product_data(raw_product_dict)
+        parsed_result = self.keepa_api._parse_product_data(raw_product_dict)
+        parsed_data = parsed_result.get('data', {})
         self.assertEqual(parsed_data['category'], "Books")
         
         # Test with empty category tree
@@ -239,7 +269,8 @@ class TestKeepaAPI(unittest.TestCase):
             "title": "Test Product", 
             "categoryTree": []
         }
-        parsed_data = self.keepa_api._parse_product_data(raw_product_empty)
+        parsed_result = self.keepa_api._parse_product_data(raw_product_empty)
+        parsed_data = parsed_result.get('data', {})
         self.assertIsNone(parsed_data['category'])
 
     @patch('core.keepa_api.requests.Session.get')
@@ -354,7 +385,9 @@ class TestKeepaAPIIntegration(unittest.TestCase):
         
         # Verify response parsing
         self.assertIsNotNone(product_data)
-        self.assertEqual(product_data['asin'], "B08N5WRWNW")
+        self.assertTrue(product_data.get('success', False))
+        data = product_data.get('data', {})
+        self.assertEqual(data['asin'], "B08N5WRWNW")
 
     @patch('core.keepa_api.requests.Session.get')
     def test_get_product_data_with_upc(self, mock_get):

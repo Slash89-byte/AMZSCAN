@@ -88,17 +88,20 @@ class KeepaAPI:
             data = response.json()
             
             if 'products' not in data or not data['products']:
-                return None
+                return {'success': False, 'error': 'No product data found'}
             
             product = data['products'][0]
-            return self._parse_product_data(product)
+            result = self._parse_product_data(product)
+            if result is None:
+                return {'success': False, 'error': 'Failed to parse product data'}
+            return result
             
         except requests.exceptions.RequestException as e:
             print(f"Error fetching data from Keepa: {e}")
-            return None
+            return {'success': False, 'error': f'Request failed: {str(e)}'}
         except (KeyError, ValueError) as e:
             print(f"Error parsing Keepa response: {e}")
-            return None
+            return {'success': False, 'error': f'Parse error: {str(e)}'}
     
     def _parse_product_data(self, product: Dict[str, Any]) -> Dict[str, Any]:
         """Parse raw Keepa product data into our format"""
@@ -111,42 +114,81 @@ class KeepaAPI:
         if 'asin' not in product:
             return None
         
-        # Extract current price from Buy Box price history (csv[0]) or Amazon price (csv[1])
+        # Extract current price - prioritize most relevant selling price for profitability analysis
         current_price = 0.0
-        if 'csv' in product and product['csv']:
+        
+        # First try stats.current array for real-time prices
+        if 'stats' in product and product['stats']:
+            stats = product['stats']
+            if 'current' in stats and isinstance(stats['current'], list):
+                current_stats = stats['current']
+                # Priority order for seller profitability analysis:
+                # 1. Buy Box price (index 0) - what customers actually see and pay
+                # 2. New FBA price (index 4) - what FBA sellers charge (most relevant for competition)
+                # 3. Amazon price (index 1) - Amazon's direct price (if they're selling)
+                # 4. New 3rd party price (index 2) - other sellers
+                
+                price_priorities = [0, 4, 1, 2]  # Buy Box, New FBA, Amazon, New 3rd Party
+                
+                for price_index in price_priorities:
+                    if len(current_stats) > price_index and current_stats[price_index] != -1:
+                        current_price = current_stats[price_index] / 100.0
+                        break
+        
+        # Fallback to csv data if stats not available
+        if current_price == 0.0 and 'csv' in product and product['csv']:
             csv_data = product['csv']
             
             # Handle both dict and list formats for csv data
-            if isinstance(csv_data, dict):
-                # Try csv[0] (Buy Box price) first
-                buybox_price_data = csv_data.get(0, [])
-                amazon_price_data = csv_data.get(1, [])
-            elif isinstance(csv_data, list) and len(csv_data) > 1:
-                # If csv is a list, get both arrays
-                buybox_price_data = csv_data[0] if len(csv_data) > 0 else []
-                amazon_price_data = csv_data[1] if len(csv_data) > 1 else []
-            else:
-                buybox_price_data = []
-                amazon_price_data = []
-            
-            # Try Buy Box price first
-            if buybox_price_data and len(buybox_price_data) >= 2:
-                price_cents = buybox_price_data[-1]
-                if price_cents and price_cents != -1:  # -1 means no data
-                    current_price = price_cents / 100.0
-            
-            # If no Buy Box price, try Amazon price
-            if current_price == 0.0 and amazon_price_data and len(amazon_price_data) >= 2:
-                price_cents = amazon_price_data[-1]
-                if price_cents and price_cents != -1:  # -1 means no data
-                    current_price = price_cents / 100.0
+            if isinstance(csv_data, list):
+                # Priority order: Buy Box (0), New FBA (4), Amazon (1), New 3rd Party (2)
+                price_priorities = [0, 4, 1, 2]
+                
+                for price_index in price_priorities:
+                    if len(csv_data) > price_index and csv_data[price_index]:
+                        price_array = csv_data[price_index]
+                        if price_array and len(price_array) >= 2:
+                            price_cents = price_array[-1]
+                            if price_cents and price_cents != -1:  # -1 means no data
+                                current_price = price_cents / 100.0
+                                break
+            elif isinstance(csv_data, dict):
+                # Handle dict format as fallback
+                price_priorities = [0, 4, 1, 2]
+                
+                for price_index in price_priorities:
+                    price_data = csv_data.get(price_index, [])
+                    if price_data and len(price_data) >= 2:
+                        price_cents = price_data[-1]
+                        if price_cents and price_cents != -1:
+                            current_price = price_cents / 100.0
+                            break
         
         # Extract product title
         title = product.get('title', 'Unknown Product')
         
-        # Extract sales rank
+        # Extract product image URL
+        image_url = None
+        if 'imagesCSV' in product and product['imagesCSV']:
+            # Get first image from CSV
+            images_csv = product['imagesCSV'].split(',')
+            if images_csv:
+                image_filename = images_csv[0].strip()
+                if image_filename:
+                    image_url = f"https://images-na.ssl-images-amazon.com/images/I/{image_filename}"
+        
+        # Extract sales rank from stats or csv
         sales_rank = None
-        if 'csv' in product and product['csv']:
+        if 'stats' in product and product['stats'] and 'current' in product['stats']:
+            current_stats = product['stats']['current']
+            if isinstance(current_stats, list) and len(current_stats) > 3:
+                # current[3] typically contains sales rank
+                rank_value = current_stats[3]
+                if rank_value and rank_value != -1:
+                    sales_rank = rank_value
+        
+        # Fallback to csv data for sales rank
+        if sales_rank is None and 'csv' in product and product['csv']:
             csv_data = product['csv']
             
             # Handle both dict and list formats for csv data
@@ -180,6 +222,10 @@ class KeepaAPI:
                 # If it's not a dict, use it as string
                 main_category = str(first_category) if first_category else 'Unknown'
         
+        # Also check the 'type' field for category
+        if not main_category and 'type' in product:
+            main_category = product['type'].replace('_', ' ').title()
+        
         # Extract dimensions and weight (if available)
         package_weight = product.get('packageWeight', 500)  # Default 500g
         weight_kg = package_weight / 1000.0 if package_weight else 0.5
@@ -188,22 +234,60 @@ class KeepaAPI:
         availability = product.get('availabilityAmazon', 0)
         in_stock = availability >= 0
         
+        # Extract price history for charts
+        price_history = []
+        if 'csv' in product and product['csv']:
+            csv_data = product['csv']
+            # CSV data is a list where index 1 contains Amazon price history
+            if isinstance(csv_data, list) and len(csv_data) > 1:
+                amazon_price_data = csv_data[1]
+                if amazon_price_data and len(amazon_price_data) >= 2:
+                    # Price data comes in pairs: [timestamp, price, timestamp, price, ...]
+                    for i in range(0, len(amazon_price_data), 2):
+                        if i + 1 < len(amazon_price_data):
+                            timestamp = amazon_price_data[i]
+                            price_cents = amazon_price_data[i + 1]
+                            if price_cents != -1:  # -1 means no data
+                                price_history.append({
+                                    'timestamp': timestamp,
+                                    'price': price_cents / 100.0
+                                })
+            elif isinstance(csv_data, dict) and 1 in csv_data:
+                # Handle dict format as fallback
+                amazon_price_data = csv_data[1]
+                if amazon_price_data and len(amazon_price_data) >= 2:
+                    for i in range(0, len(amazon_price_data), 2):
+                        if i + 1 < len(amazon_price_data):
+                            timestamp = amazon_price_data[i]
+                            price_cents = amazon_price_data[i + 1]
+                            if price_cents != -1:
+                                price_history.append({
+                                    'timestamp': timestamp,
+                                    'price': price_cents / 100.0
+                                })
+        
         # Determine fee category
         fee_category = self._get_fee_category(main_category)
         
         return {
-            'asin': product.get('asin', ''),
-            'title': title,
-            'current_price': current_price,
-            'sales_rank': sales_rank,
-            'review_count': review_count,
-            'rating': rating,
-            'category': main_category,
-            'fee_category': fee_category,  # Category for fee calculations
-            'weight': weight_kg,
-            'in_stock': in_stock,
-            'last_updated': product.get('lastUpdate', 0),
-            'raw_data': product  # Keep raw data for advanced analysis
+            'success': True,  # Add success flag
+            'data': {
+                'asin': product.get('asin', ''),
+                'title': title,
+                'current_price': current_price,
+                'sales_rank': sales_rank,
+                'review_count': review_count,
+                'rating': rating,
+                'category': main_category,
+                'fee_category': fee_category,  # Category for fee calculations
+                'weight': weight_kg,
+                'in_stock': in_stock,
+                'image_url': image_url,
+                'price_history': price_history,
+                'last_updated': product.get('lastUpdate', 0),
+                'raw_data': product  # Keep raw data for advanced analysis
+            },
+            'error': None
         }
     
     def _get_fee_category(self, category_name: str) -> str:

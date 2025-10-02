@@ -15,11 +15,16 @@ This document outlines all the questions and considerations for implementing a c
 
 ### ❌ **Missing Fee Types:**
 1. **Storage Fee** - Monthly warehouse storage costs
+    do some researcj on how this should be implemented first and then create a document explaining your approach
 2. **Prep Fee** - Product preparation services
+    should be configurable directly in the anaylyis
 3. **Inbound Shipping** - Shipping products to Amazon warehouses
+    since multiple products are shipped together, just make a configurable field about how much shipping cost per item
 4. **Digital Services Fee** - Amazon advertising, brand registry, etc.
+    configurable as well, default to 0
 5. **Miscellaneous Fees** - Returns, disposals, high-volume listing fees
 6. **VAT on Fees** - VAT applied to Amazon's service fees
+    this should coalculated from all the fees already planned. also since VAT will be retrieved all VAT fees needs to be removed from the cost
 
 ---
 
@@ -31,6 +36,7 @@ This document outlines all the questions and considerations for implementing a c
 - **Option A**: Enhance existing `calculate_total_fees()` method with optional parameters
 - **Option B**: Create new `calculate_comprehensive_fees()` method alongside existing ones
 - **Option C**: Replace current method entirely with comprehensive version
+let's go with option C: you can do a complete redesign
 
 **Which approach do you prefer for maintaining compatibility?**
 
@@ -38,20 +44,25 @@ This document outlines all the questions and considerations for implementing a c
 - Should the current simple fee calculation remain as the default?
 - Do existing integrations (GUI, ROI calculator) need to work unchanged?
 - Should we provide both "simple" and "comprehensive" modes?
-
+we should provide only comprehensive modes but the new fees are just set to default values as 0
 ---
 
 ### **2. Storage Fees**
 
 #### **Q2.1: Storage Duration**
 - **Default Storage Time**: How many months should we assume as default? (1, 2, 3 months?)
+3
 - **Seasonal Variation**: Should we account for peak season (Oct-Dec) higher rates automatically?
+Not yet
 - **User Input**: Should storage time be configurable per product or use a global default?
-
+global default
 #### **Q2.2: Product Dimensions**
 - **Volume Calculation**: How do we estimate product volume? Use weight-to-volume ratio?
+can't we retrieve this information from keepa
 - **Size Classification**: How do we determine "standard" vs "oversize" products?
+check if we can retrieve this from keepa
 - **Default Values**: What volume should we assume if not specified?
+if Dimension are not specified just add an altert saying that dimension are not provided and user can provide them if he wants
 
 #### **Q2.3: Storage Rates (France)**
 ```
@@ -60,7 +71,7 @@ Current Amazon France Storage Fees:
 - Oversize: €18.60/m³ (year-round)
 ```
 **Are these rates accurate for your calculations?**
-
+I don'tt know, please double chek with the official documentation 
 ---
 
 ### **3. Prep Fees**
@@ -72,12 +83,13 @@ Current Amazon France Storage Fees:
   - Bagging (€0.55/item)
   - Taping (€0.70/item)
   - Other?
+  nothing from this
 
 #### **Q3.2: Prep Strategy**
 - **Per Product**: Should prep fees be configurable per product type/category?
 - **Percentage Approach**: Or calculate as percentage of products requiring prep?
 - **User Control**: Should users be able to toggle prep services on/off?
-
+Nothing from this
 ---
 
 ### **4. Inbound Shipping**

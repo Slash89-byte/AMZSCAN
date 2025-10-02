@@ -18,7 +18,7 @@
     "request_timeout": 30,
     "max_retries": 3,
     "rate_limit_delay": 1.0,
-    "keepa_api_key": "",
+    "keepa_api_key": "qgk14po84l6lgnmne5i6gusdk56886tt0h0pm4f4a58ngiumuu4ibpjrrkbhirgd",
     "default_domain": "france",
     "amazon_domain": 4,
     "currency_symbol": "€",
