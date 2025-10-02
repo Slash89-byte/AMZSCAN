@@ -4,6 +4,7 @@ Keepa API integration for Amazon product data
 
 import requests
 import json
+import time
 from typing import Optional, Dict, Any
 
 class KeepaAPI:
@@ -18,6 +19,13 @@ class KeepaAPI:
         self.session.headers.update({
             'User-Agent': 'Amazon-Profitability-Analyzer/1.0'
         })
+        
+        # Rate limiting
+        self.last_request_time = 0
+        self.min_request_interval = 1.0  # Minimum 1 second between requests (more conservative)
+        self.request_count = 0
+        self.request_limit_per_minute = 30  # Very conservative limit (Keepa allows 100/min but let's be safe)
+        self.minute_start = time.time()
         
         # Category mapping for Amazon fee calculations
         self.category_mappings = {
@@ -43,6 +51,69 @@ class KeepaAPI:
             'jardin': 'home_garden',
         }
     
+    def _rate_limit(self):
+        """Implement rate limiting to prevent 429 errors"""
+        current_time = time.time()
+        
+        # Reset counter every minute
+        if current_time - self.minute_start >= 60:
+            self.request_count = 0
+            self.minute_start = current_time
+        
+        # Check if we've hit the per-minute limit
+        if self.request_count >= self.request_limit_per_minute:
+            sleep_time = 60 - (current_time - self.minute_start)
+            if sleep_time > 0:
+                print(f"Rate limit reached. Waiting {sleep_time:.1f} seconds...")
+                time.sleep(sleep_time)
+                self.request_count = 0
+                self.minute_start = time.time()
+        
+        # Ensure minimum interval between requests
+        time_since_last = current_time - self.last_request_time
+        if time_since_last < self.min_request_interval:
+            sleep_time = self.min_request_interval - time_since_last
+            time.sleep(sleep_time)
+        
+        self.last_request_time = time.time()
+        self.request_count += 1
+    
+    def _make_request(self, url: str, params: dict, timeout: int = 10, max_retries: int = 3):
+        """Make a rate-limited request with retry logic for 429 errors"""
+        for attempt in range(max_retries):
+            try:
+                self._rate_limit()
+                response = self.session.get(url, params=params, timeout=timeout)
+                
+                if response.status_code == 429:
+                    # Check for Retry-After header
+                    retry_after = response.headers.get('Retry-After')
+                    if retry_after:
+                        try:
+                            wait_time = int(retry_after)
+                            print(f"Rate limited (429). Server says retry after {wait_time} seconds...")
+                        except ValueError:
+                            wait_time = min(10, 2 ** attempt)  # Fallback to exponential backoff
+                    else:
+                        wait_time = min(10, 2 ** attempt)  # Cap at 10 seconds: 2s, 4s, 8s
+                        
+                    print(f"Rate limited (429). Waiting {wait_time} seconds before retry {attempt + 1}/{max_retries}...")
+                    time.sleep(wait_time)
+                    # Reset rate limiting counters after a 429
+                    self.request_count = max(0, self.request_count - 5)  # Back off more aggressively
+                    continue
+                
+                response.raise_for_status()
+                return response
+                
+            except requests.exceptions.RequestException as e:
+                if attempt == max_retries - 1:  # Last attempt
+                    raise e
+                print(f"Request failed (attempt {attempt + 1}/{max_retries}): {e}")
+                time.sleep(1)  # Wait before retry
+        
+        raise requests.exceptions.RequestException("Max retries exceeded")
+
     def get_product_data(self, product_id: str, domain: int = 4) -> Optional[Dict[str, Any]]:
         """
         Get product data from Keepa API
@@ -61,8 +132,8 @@ class KeepaAPI:
             
             if not result['is_valid']:
                 print(f"Invalid product identifier: {product_id}")
-                return None
-            
+                return {'success': False, 'error': f'Invalid product identifier: {product_id}'}
+
             params = {
                 'key': self.api_key,
                 'domain': domain,
@@ -80,11 +151,9 @@ class KeepaAPI:
                 params['code'] = normalized_id
             else:
                 print(f"Unsupported identifier type for Keepa API: {identifier_type}")
-                return None
+                return {'success': False, 'error': f'Unsupported identifier type: {identifier_type}'}
             
-            response = self.session.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            
+            response = self._make_request(url, params, timeout=10)
             data = response.json()
             
             if 'products' not in data or not data['products']:
@@ -223,7 +292,7 @@ class KeepaAPI:
                 main_category = str(first_category) if first_category else 'Unknown'
         
         # Also check the 'type' field for category
-        if not main_category and 'type' in product:
+        if not main_category and 'type' in product and product['type']:
             main_category = product['type'].replace('_', ' ').title()
         
         # Extract dimensions and weight (if available)
@@ -365,9 +434,7 @@ class KeepaAPI:
                 'days': days
             }
             
-            response = self.session.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            
+            response = self._make_request(url, params, timeout=10)
             data = response.json()
             
             if 'products' not in data or not data['products']:
@@ -412,6 +479,61 @@ class KeepaAPI:
             print(f"Error parsing price history: {e}")
             return None
     
+    def search_products(self, query: str, domain: str = 'fr') -> Optional[list]:
+        """
+        Search for products using Keepa API search functionality
+        
+        Args:
+            query: Search query string
+            domain: Amazon domain (fr, com, de, etc.)
+            
+        Returns:
+            List of search results or None if search fails
+        """
+        try:
+            # Convert domain string to domain code
+            domain_codes = {
+                'com': 1, 'co.uk': 2, 'de': 3, 'fr': 4, 'co.jp': 5,
+                'ca': 6, 'it': 7, 'es': 8, 'in': 9, 'mx': 10
+            }
+            
+            domain_code = domain_codes.get(domain, 4)  # Default to France
+            
+            # Use Keepa's search endpoint
+            url = f"{self.base_url}/search"
+            params = {
+                'key': self.api_key,
+                'domain': domain_code,
+                'type': 'product',
+                'term': query,
+                'page': 0,
+                'perPage': 50,
+                'sort': 0  # Sort by relevance
+            }
+            
+            response = self._make_request(url, params, timeout=15)
+            data = response.json()
+            
+            # Check for successful response
+            if not data.get('products'):
+                return []
+                
+            # Format results for compatibility
+            results = []
+            for product in data['products']:
+                if product.get('asin'):
+                    results.append({
+                        'asin': product['asin'],
+                        'title': product.get('title', ''),
+                        'domain': domain_code
+                    })
+            
+            return results
+            
+        except Exception as e:
+            print(f"Error searching products: {e}")
+            return None
+
     def test_connection(self) -> bool:
         """
         Test the connection to Keepa API
@@ -422,9 +544,7 @@ class KeepaAPI:
             url = f"{self.base_url}/token"
             params = {'key': self.api_key}
             
-            response = self.session.get(url, params=params, timeout=10)
-            response.raise_for_status()
-            
+            response = self._make_request(url, params, timeout=10)
             data = response.json()
             # Check if we have tokens left (positive number indicates valid key)
             return data.get('tokensLeft', 0) > 0

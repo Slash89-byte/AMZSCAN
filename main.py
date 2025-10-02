@@ -2,8 +2,8 @@
 Amazon Product Profitability Analyzer
 
 A comprehensive tool for analyzing Amazon product profitability with enhanced features
-including multi-format identifier support, comprehensive fee calculations, and
-enhanced ROI analysis.
+including multi-format identifier support, comprehensive fee calculations, enhanced ROI analysis,
+and Qogita wholesale product discovery.
 """
 
 import sys
@@ -15,7 +15,7 @@ from PyQt6.QtGui import QIcon
 # Add the current directory to the Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from gui.enhanced_main_window import EnhancedMainWindow
+from gui.main_dashboard import MainDashboardWindow
 from utils.config import Config
 
 
@@ -24,8 +24,8 @@ def main():
     app = QApplication(sys.argv)
     
     # Set application properties
-    app.setApplicationName("Amazon Profitability Analyzer - Enhanced")
-    app.setApplicationVersion("2.1")
+    app.setApplicationName("Amazon Analysis Tools")
+    app.setApplicationVersion("3.0")
     app.setOrganizationName("Amazon Analysis Tools")
     
     # Enable high DPI scaling (PyQt6 compatible)
@@ -44,19 +44,23 @@ def main():
         if not api_key:
             QMessageBox.information(
                 None, 
-                "Welcome to Amazon Profitability Analyzer - Enhanced",
-                "Welcome to the Enhanced version! \n\n"
-                "New features:\n"
+                "Welcome to Amazon Analysis Tools v3.0",
+                "Welcome to the new unified platform! \n\n"
+                "Available modules:\n"
+                "• 💰 Profit Analyzer - Single product analysis\n"
+                "• 🧴 Qogita Brand Scanner - Bulk brand analysis\n\n"
+                "Features:\n"
                 "• 🖼️ Product image display\n"
                 "• 📈 Interactive Keepa price charts\n"
                 "• 📊 Enhanced visual results\n"
-                "• 📋 Detailed product information panel\n\n"
-                "Please configure your Keepa API key through the Configuration menu to get started."
+                "• � Wholesale product discovery\n"
+                "• 📋 Bulk profitability analysis\n\n"
+                "Please configure your API keys through the Settings menu to get started."
             )
         
-        # Create and show enhanced main window
-        window = EnhancedMainWindow()
-        window.show()
+        # Create and show main dashboard
+        dashboard = MainDashboardWindow()
+        dashboard.show()
         
         # Start the event loop
         sys.exit(app.exec())
@@ -65,7 +69,7 @@ def main():
         QMessageBox.critical(
             None,
             "Application Error",
-            f"Failed to start enhanced application:\n\n{str(e)}\n\n"
+            f"Failed to start application:\n\n{str(e)}\n\n"
             f"If you're missing required packages, please install:\n"
             f"pip install matplotlib pillow"
         )

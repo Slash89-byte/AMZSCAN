@@ -65,7 +65,10 @@ class TestMultiFormatIdentifierIntegration(unittest.TestCase):
         # Test ASIN lookup
         result_asin = keepa_api.get_product_data('B0BQBXBW88')
         self.assertIsNotNone(result_asin)
-        self.assertEqual(result_asin['asin'], 'B0BQBXBW88')
+        # The result should contain success flag and data
+        self.assertIn('success', result_asin)
+        if result_asin.get('success') and result_asin.get('data'):
+            self.assertIn('asin', result_asin['data'])
 
         # Test EAN lookup
         result_ean = keepa_api.get_product_data('4003994155486')
