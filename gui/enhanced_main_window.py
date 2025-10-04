@@ -710,7 +710,7 @@ class EnhancedMainWindow(QMainWindow):
             QMessageBox.warning(self, "Input Error", "Please enter a valid cost price (e.g., 8.50)")
             return
         
-        api_key = self.config.get('keepa_api_key')
+        api_key = self.config.get_keepa_api_key()
         if not api_key:
             QMessageBox.warning(self, "Configuration Error", 
                                "Keepa API key not configured. Please go to Configuration > General to set it up.")

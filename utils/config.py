@@ -157,15 +157,21 @@ class Config:
     
     def is_configured(self) -> bool:
         """Check if the application is properly configured"""
-        return bool(self.get('keepa_api_key'))
+        return bool(self.get_keepa_api_key())
     
     def get_keepa_api_key(self) -> str:
-        """Get the Keepa API key"""
+        """Get the Keepa API key - checks both legacy and new locations"""
+        # Try new nested location first
+        api_key = self.get('api_settings.keepa_api_key', '')
+        if api_key:
+            return api_key
+        # Fall back to legacy top-level location
         return self.get('keepa_api_key', '')
     
     def set_keepa_api_key(self, api_key: str) -> None:
-        """Set the Keepa API key"""
-        self.set('keepa_api_key', api_key)
+        """Set the Keepa API key in both locations for compatibility"""
+        self.set('keepa_api_key', api_key)  # Legacy location
+        self.set('api_settings.keepa_api_key', api_key)  # New location
         self.save_config()
     
     def get_min_roi_threshold(self) -> float:

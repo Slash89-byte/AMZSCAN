@@ -258,7 +258,7 @@ class QogitaScannerWindow(QWidget):
             self.qogita_api = QogitaAPI(qogita_email, qogita_password)
             
         # Get Keepa API key
-        keepa_api_key = self.config.get('keepa_api_key')
+        keepa_api_key = self.config.get_keepa_api_key()
         if not keepa_api_key:
             self.logger.error("Keepa API key not found in config")
             self.keepa_api = None

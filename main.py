@@ -39,7 +39,7 @@ def main():
     try:
         # Check configuration
         config = Config()
-        api_key = config.get('keepa_api_key')
+        api_key = config.get_keepa_api_key()
         
         if not api_key:
             QMessageBox.information(

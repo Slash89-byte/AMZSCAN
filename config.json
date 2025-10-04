@@ -4,15 +4,15 @@
   "amazon_marketplace": "france",
   "default_weight_kg": 0.5,
   "default_category": "default",
-  "currency_symbol": "€",
+  "currency_symbol": "â‚¬",
   "vat_rate": 0.2,
   "ui_settings": {
     "window_width": 800,
-    "window_height": 600,
-    "theme": "default",
-    "show_advanced_options": false,
+    "window_height": 800,
     "decimal_places": 2,
-    "show_tooltips": true
+    "show_tooltips": true,
+    "show_advanced_options": false,
+    "theme": "default"
   },
   "api_settings": {
     "request_timeout": 30,
@@ -27,14 +27,11 @@
   "qogita_settings": {
     "email": "mgcommercesas@gmail.com",
     "password": "3X#4yJC.X4a@JA8",
-    "max_products_per_brand": 2000,
-    "enable_caching": true,
-    "cache_duration_hours": 24,
-    "enable_product_matching": true,
-    "flag_unmatched_products": true
+    "rate_limit_delay": 1.0,
+    "timeout": 60
   },
   "vat_settings": {
-    "vat_rate": 0.20,
+    "vat_rate": 0.2,
     "apply_vat_on_cost": true,
     "apply_vat_on_sale": false,
     "vat_included_in_amazon_prices": true
