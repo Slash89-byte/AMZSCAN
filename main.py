@@ -1,7 +1,23 @@
 """
-Amazon Product Profitability Analyzer
-
-A comprehensive tool for analyzing Amazon product profitability with enhanced features
+Amazon Product Profitability Analyzer        if not api_key:
+            QMessageBox.information(
+                None, 
+                "Welcome to Amazon Analysis Tools v3.0",
+                "Welcome to the new unified platform! \n\n"
+                "Available modules:\n"
+                "• 💰 Profit Analyzer - Single product analysis\n"
+                "• 🧴 Qogita Brand Scanner - Bulk brand analysis\n"
+                "• 📦 Catalog Scanner - Wholesaler catalog analysis\n\n"
+                "Features:\n"
+                "• 🖼️ Product image display\n"
+                "• 📈 Interactive Keepa price charts\n"
+                "• 📊 Enhanced visual results\n"
+                "• 🛍️ Wholesale product discovery\n"
+                "• 📋 Bulk profitability analysis\n"
+                "• 📂 Multi-format catalog support (CSV/Excel)\n"
+                "• 💱 Multi-currency & VAT handling\n\n"
+                "Please configure your API keys through the Settings menu to get started."
+            )ve tool for analyzing Amazon product profitability with enhanced features
 including multi-format identifier support, comprehensive fee calculations, enhanced ROI analysis,
 and Qogita wholesale product discovery.
 """

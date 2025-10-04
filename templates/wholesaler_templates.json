@@ -1,0 +1,24 @@
+{
+  "Demo Wholesaler": {
+    "name": "Demo Wholesaler",
+    "column_mappings": {
+      "EAN": "gtin",
+      "Product Name": "product_name",
+      "Brand": "brand",
+      "Category": "category",
+      "Wholesale Price €": "wholesale_price",
+      "Stock": "stock",
+      "MOQ": "moq"
+    },
+    "currency": "EUR",
+    "vat_included": true,
+    "metadata": {
+      "file_format": "csv",
+      "delimiter": ",",
+      "note": "Sample catalog for testing"
+    },
+    "created_date": "2025-10-04T22:09:27.958887",
+    "last_used_date": "2025-10-04T22:18:06.301372",
+    "use_count": 5
+  }
+}

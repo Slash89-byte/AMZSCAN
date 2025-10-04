@@ -87,6 +87,21 @@ class ModuleSelectorWidget(QWidget):
         )
         buttons_layout.addWidget(qogita_scanner_btn)
         
+        # Catalog Scanner Module
+        catalog_scanner_btn = self.create_module_button(
+            "📦 Catalog Scanner",
+            "Wholesaler Catalog Analysis",
+            [
+                "• Upload CSV/Excel catalogs",
+                "• Smart column detection",
+                "• Multi-currency support",
+                "• VAT handling options",
+                "• Template management"
+            ],
+            "catalog_scanner"
+        )
+        buttons_layout.addWidget(catalog_scanner_btn)
+        
         layout.addLayout(buttons_layout)
         
         # Footer info
@@ -172,6 +187,7 @@ class MainDashboardWindow(QMainWindow):
         super().__init__()
         self.profit_analyzer_window = None
         self.qogita_scanner_window = None
+        self.catalog_scanner_window = None
         self.setup_ui()
         self.setup_window()
     
@@ -305,6 +321,8 @@ class MainDashboardWindow(QMainWindow):
             self.open_profit_analyzer()
         elif module_id == "qogita_scanner":
             self.open_qogita_scanner()
+        elif module_id == "catalog_scanner":
+            self.open_catalog_scanner()
     
     def open_profit_analyzer(self):
         """Open the Profit Analyzer module"""
@@ -356,6 +374,27 @@ class MainDashboardWindow(QMainWindow):
                 f"Failed to open Qogita Scanner:\n\n{str(e)}"
             )
     
+    def open_catalog_scanner(self):
+        """Open the Catalog Scanner module"""
+        try:
+            # Import here to avoid circular imports
+            from gui.catalog_scanner import CatalogScannerWindow
+            
+            # Check if window exists and is valid
+            if self.catalog_scanner_window is None or not self.catalog_scanner_window.isVisible():
+                self.catalog_scanner_window = CatalogScannerWindow()
+            
+            self.catalog_scanner_window.show()
+            self.catalog_scanner_window.raise_()
+            self.catalog_scanner_window.activateWindow()
+            
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error", 
+                f"Failed to open Catalog Scanner:\n\n{str(e)}"
+            )
+    
     def closeEvent(self, event):
         """Handle window close event"""
         # Close child windows
@@ -363,6 +402,8 @@ class MainDashboardWindow(QMainWindow):
             self.profit_analyzer_window.close()
         if self.qogita_scanner_window:
             self.qogita_scanner_window.close()
+        if self.catalog_scanner_window:
+            self.catalog_scanner_window.close()
         
         event.accept()
 
