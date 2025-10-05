@@ -319,7 +319,8 @@ class CatalogScannerWindow(QWidget):
         self.logger = logging.getLogger(__name__)
         
         # Initialize components
-        self.keepa_api = KeepaAPI(self.config)
+        api_key = self.config.get_keepa_api_key()
+        self.keepa_api = KeepaAPI(api_key)
         self.roi_calculator = EnhancedROICalculator()
         self.product_matcher = ProductMatcher(self.keepa_api, self.roi_calculator)
         self.catalog_parser = CatalogParser()
