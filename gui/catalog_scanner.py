@@ -188,9 +188,13 @@ class CatalogScanWorker(QThread):
             matched_products = []
             total_rows = len(self.catalog_data.rows)
             
-            self.log_message.emit(f"🚀 Starting catalog scan: {total_rows} products")
+            # TESTING MODE: Limit to first 5 products to save API tokens
+            test_limit = 5
+            rows_to_process = self.catalog_data.rows[:test_limit]
             
-            for i, row_data in enumerate(self.catalog_data.rows):
+            self.log_message.emit(f"🚀 Starting catalog scan: {len(rows_to_process)} products (TEST MODE - limited to {test_limit})")
+            
+            for i, row_data in enumerate(rows_to_process):
                 if not self.is_running:
                     self.log_message.emit("❌ Scan stopped by user")
                     break
@@ -203,21 +207,22 @@ class CatalogScanWorker(QThread):
                 
                 # Update progress
                 self.progress_updated.emit(
-                    i + 1, total_rows,
+                    i + 1, len(rows_to_process),
                     f"Processing: {qogita_product.name[:50]}..."
                 )
                 
                 # Match with Amazon
                 try:
-                    matched = self.product_matcher.match_product(qogita_product)
+                    matched = self.product_matcher.match_single_product(qogita_product)
                     
                     if matched:
                         matched_products.append(matched)
                         
-                        status = "✅" if matched.match_status == "MATCHED" else "⚠️"
+                        status = "✅" if matched.match_status == "matched" else "⚠️"
                         self.log_message.emit(
                             f"{status} {qogita_product.gtin}: {matched.match_status} "
-                            f"(Profit: €{matched.profit_margin:.2f})"
+                            f"(Profit: €{matched.profit_margin:.2f})" if matched.profit_margin else 
+                            f"{status} {qogita_product.gtin}: {matched.match_status}"
                         )
                     else:
                         self.log_message.emit(f"❌ {qogita_product.gtin}: No match found")
@@ -226,7 +231,7 @@ class CatalogScanWorker(QThread):
                     self.logger.error(f"Error matching product: {str(e)}")
                     self.log_message.emit(f"❌ Error matching {qogita_product.gtin}: {str(e)}")
             
-            self.log_message.emit(f"✅ Scan completed: {len(matched_products)}/{total_rows} products matched")
+            self.log_message.emit(f"✅ Scan completed: {len(matched_products)}/{len(rows_to_process)} products matched")
             self.scan_completed.emit(matched_products)
             
         except Exception as e:
@@ -473,10 +478,11 @@ class CatalogScannerWindow(QWidget):
         
         # Results table
         self.results_table = QTableWidget()
-        self.results_table.setColumnCount(11)
+        self.results_table.setColumnCount(13)
         self.results_table.setHorizontalHeaderLabels([
             'GTIN', 'Brand', 'Product Name', 'Category', 'Wholesale €',
-            'Amazon €', 'Profit €', 'ROI %', 'Stock', 'Status', 'ASIN'
+            'Amazon €', 'FBA Fee €', 'Referral Fee €', 'Total Fees €', 
+            'Profit €', 'ROI %', 'Status', 'ASIN'
         ])
         
         # Configure table
@@ -781,7 +787,7 @@ class CatalogScannerWindow(QWidget):
         
         qp = product.qogita_product
         
-        # Add data
+        # Basic product info
         self.results_table.setItem(row, 0, QTableWidgetItem(qp.gtin))
         self.results_table.setItem(row, 1, QTableWidgetItem(qp.brand))
         self.results_table.setItem(row, 2, QTableWidgetItem(qp.name))
@@ -792,27 +798,45 @@ class CatalogScannerWindow(QWidget):
         amazon_price = f"{product.amazon_price:.2f}" if product.amazon_price else "N/A"
         self.results_table.setItem(row, 5, QTableWidgetItem(amazon_price))
         
-        # Profit
-        profit = f"{product.profit_margin:.2f}" if product.profit_margin else "N/A"
+        # Fee details (from stored calculation)
+        fba_fee = f"{product.fba_fee:.2f}" if product.fba_fee is not None else "N/A"
+        referral_fee = f"{product.referral_fee:.2f}" if product.referral_fee is not None else "N/A"
+        total_fees = f"{product.total_fees:.2f}" if product.total_fees is not None else "N/A"
+        
+        self.results_table.setItem(row, 6, QTableWidgetItem(fba_fee))
+        self.results_table.setItem(row, 7, QTableWidgetItem(referral_fee))
+        self.results_table.setItem(row, 8, QTableWidgetItem(total_fees))
+        
+        # Profit with color coding
+        profit = f"{product.profit_margin:.2f}" if product.profit_margin is not None else "N/A"
         profit_item = QTableWidgetItem(profit)
         if product.profit_margin and product.profit_margin > 0:
             profit_item.setForeground(QColor('green'))
         elif product.profit_margin and product.profit_margin < 0:
             profit_item.setForeground(QColor('red'))
-        self.results_table.setItem(row, 6, profit_item)
+        self.results_table.setItem(row, 9, profit_item)
         
-        # ROI
-        roi = f"{product.roi_percentage:.1f}" if product.roi_percentage else "N/A"
-        self.results_table.setItem(row, 7, QTableWidgetItem(roi))
-        
-        # Stock
-        self.results_table.setItem(row, 8, QTableWidgetItem(str(qp.stock)))
+        # ROI with color coding
+        roi = f"{product.roi_percentage:.1f}" if product.roi_percentage is not None else "N/A"
+        roi_item = QTableWidgetItem(roi)
+        if product.roi_percentage and product.roi_percentage > 20:
+            roi_item.setForeground(QColor('green'))
+        elif product.roi_percentage and product.roi_percentage < 10:
+            roi_item.setForeground(QColor('orange'))
+        self.results_table.setItem(row, 10, roi_item)
         
         # Status
-        self.results_table.setItem(row, 9, QTableWidgetItem(product.match_status))
+        status_item = QTableWidgetItem(product.match_status)
+        if product.match_status == "matched":
+            status_item.setForeground(QColor('green'))
+        elif product.match_status in ["not_found", "gtin_invalid"]:
+            status_item.setForeground(QColor('red'))
+        else:
+            status_item.setForeground(QColor('orange'))
+        self.results_table.setItem(row, 11, status_item)
         
         # ASIN
-        self.results_table.setItem(row, 10, QTableWidgetItem(product.amazon_asin or "N/A"))
+        self.results_table.setItem(row, 12, QTableWidgetItem(product.amazon_asin or "N/A"))
     
     def export_results(self):
         """Export results to CSV"""

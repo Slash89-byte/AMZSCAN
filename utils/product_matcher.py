@@ -46,6 +46,11 @@ class MatchedProduct:
     match_confidence: int = 0  # 0-100, confidence in the match
     gtin_analysis: Optional[Dict] = None  # GTIN processing results
     search_attempts: List[str] = None  # GTINs that were tried
+    # Fee breakdown
+    fba_fee: Optional[float] = None
+    referral_fee: Optional[float] = None
+    storage_fee: Optional[float] = None
+    total_fees: Optional[float] = None
 
 
 class ProductMatcher(QObject):
@@ -194,6 +199,10 @@ class ProductMatcher(QObject):
                     
                     matched_product.profit_margin = profit_analysis.get('profit_margin')
                     matched_product.roi_percentage = profit_analysis.get('roi_percentage')
+                    matched_product.fba_fee = profit_analysis.get('fba_fee')
+                    matched_product.referral_fee = profit_analysis.get('referral_fee')
+                    matched_product.storage_fee = profit_analysis.get('storage_fee')
+                    matched_product.total_fees = profit_analysis.get('estimated_fees')
                     matched_product.match_status = "matched"
                     
                     # Set confidence based on GTIN confidence and exact match
@@ -235,6 +244,10 @@ class ProductMatcher(QObject):
                         
                         matched_product.profit_margin = profit_analysis.get('profit_margin')
                         matched_product.roi_percentage = profit_analysis.get('roi_percentage')
+                        matched_product.fba_fee = profit_analysis.get('fba_fee')
+                        matched_product.referral_fee = profit_analysis.get('referral_fee')
+                        matched_product.storage_fee = profit_analysis.get('storage_fee')
+                        matched_product.total_fees = profit_analysis.get('estimated_fees')
                         matched_product.match_status = "matched_by_name"
                         # Lower confidence for name-based matches
                         matched_product.match_confidence = 60
@@ -427,7 +440,7 @@ class ProductMatcher(QObject):
     
     def _calculate_profitability(self, wholesale_price: float, amazon_price: float, keepa_data: Dict) -> Dict:
         """
-        Calculate profitability metrics
+        Calculate profitability metrics using EnhancedROICalculator
         
         Args:
             wholesale_price: Qogita wholesale price in EUR
@@ -435,30 +448,69 @@ class ProductMatcher(QObject):
             keepa_data: Keepa product data for additional calculations
             
         Returns:
-            Dictionary with profit_margin and roi_percentage
+            Dictionary with profit_margin, roi_percentage, and detailed fees
         """
         try:
-            # Use the enhanced calculator for comprehensive fee calculation
-            # For now, use basic calculation - can be enhanced with product specifics
+            # Extract product dimensions and weight from Keepa data
+            package_length = keepa_data.get('packageLength', 0) / 10 if keepa_data.get('packageLength') else 20
+            package_width = keepa_data.get('packageWidth', 0) / 10 if keepa_data.get('packageWidth') else 15
+            package_height = keepa_data.get('packageHeight', 0) / 10 if keepa_data.get('packageHeight') else 10
+            item_weight = keepa_data.get('packageWeight', 0) / 1000 if keepa_data.get('packageWeight') else 0.3  # Convert g to kg
             
-            # Estimate Amazon fees (approximately 15% + €1 for cosmetics)
+            # Get category for accurate fee calculation
+            category = keepa_data.get('categoryTree', [{}])[0].get('name', 'Health & Personal Care') if keepa_data.get('categoryTree') else 'Health & Personal Care'
+            
+            # Use the EnhancedROICalculator for accurate fee calculation
+            result = self.calculator.calculate_roi(
+                amazon_asin='',  # Not needed for fee calculation
+                amazon_price=amazon_price,
+                wholesale_cost=wholesale_price,
+                item_dimensions={
+                    'length': package_length,
+                    'width': package_width,
+                    'height': package_height,
+                    'weight': item_weight
+                },
+                category=category,
+                monthly_sales=30,  # Estimate for storage fee calculation
+                has_brand_approval=True
+            )
+            
+            # Extract the calculated values
+            profit_margin = result.get('net_profit', 0)
+            roi_percentage = result.get('roi_percentage', 0)
+            total_fees = result.get('total_fees', 0)
+            fba_fee = result.get('fba_fee', 0)
+            referral_fee = result.get('referral_fee', 0)
+            storage_fee = result.get('storage_fee', 0)
+            
+            return {
+                'profit_margin': profit_margin,
+                'roi_percentage': roi_percentage,
+                'estimated_fees': total_fees,
+                'fba_fee': fba_fee,
+                'referral_fee': referral_fee,
+                'storage_fee': storage_fee
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating profitability: {str(e)}")
+            # Fallback to basic calculation
             amazon_fee_rate = 0.15
             amazon_fixed_fee = 1.0
             estimated_fees = (amazon_price * amazon_fee_rate) + amazon_fixed_fee
             
-            # Calculate profit
             profit_margin = amazon_price - wholesale_price - estimated_fees
             roi_percentage = (profit_margin / wholesale_price) * 100 if wholesale_price > 0 else 0
             
             return {
                 'profit_margin': profit_margin,
                 'roi_percentage': roi_percentage,
-                'estimated_fees': estimated_fees
+                'estimated_fees': estimated_fees,
+                'fba_fee': amazon_fixed_fee,
+                'referral_fee': amazon_price * amazon_fee_rate,
+                'storage_fee': 0
             }
-            
-        except Exception as e:
-            self.logger.error(f"Error calculating profitability: {str(e)}")
-            return {'profit_margin': 0, 'roi_percentage': 0}
     
     def _enforce_rate_limit(self):
         """Enforce rate limiting for API requests"""
